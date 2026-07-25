@@ -1,6 +1,5 @@
 --[[
-    Ember's Cheats — Clean Version
-    Mobile-First | Hard Lock Aimbot + ESP + Auto Run
+    Ember's Cheats — Versão Corrigida
 ]]
 
 local Players = game:GetService("Players")
@@ -14,10 +13,10 @@ local PlayerGui = LP:WaitForChild("PlayerGui")
 local Camera = Workspace.CurrentCamera
 
 -- ====================== CONFIG ======================
-local FOV_RADIUS = 90          -- FOV do aimbot em pixels (aprox 90°)
-local AIM_MAX_DIST = 800
-local ESP_MAX_DIST = 1200
-local AUTO_RUN_BOOST = 1.05    -- +5%
+local FOV = 110
+local AIM_DIST = 900
+local ESP_DIST = 1500
+local SPEED_BOOST = 1.05
 
 -- ====================== STATE ======================
 local S = {
@@ -30,24 +29,18 @@ local S = {
 
 -- ====================== UTILS ======================
 local function make(class, props, parent)
-	local obj = Instance.new(class)
-	for k, v in pairs(props) do
-		obj[k] = v
-	end
-	if parent then obj.Parent = parent end
-	return obj
+	local o = Instance.new(class)
+	for k, v in pairs(props) do o[k] = v end
+	if parent then o.Parent = parent end
+	return o
 end
 
-local function corner(obj, r)
-	return make("UICorner", {CornerRadius = UDim.new(0, r)}, obj)
+local function corner(o, r)
+	return make("UICorner", {CornerRadius = UDim.new(0, r)}, o)
 end
 
-local function stroke(obj, color, transparency)
-	return make("UIStroke", {
-		Color = color,
-		Transparency = transparency or 0.3,
-		Thickness = 1.2,
-	}, obj)
+local function stroke(o, c, t)
+	return make("UIStroke", {Color = c, Transparency = t or 0.35, Thickness = 1.2}, o)
 end
 
 local function getRoot(char)
@@ -58,63 +51,64 @@ local function getHum(char)
 	return char and char:FindFirstChildOfClass("Humanoid")
 end
 
-local function isAlive(player)
-	local hum = getHum(player.Character)
-	return hum and hum.Health > 0
+local function isAlive(p)
+	local h = getHum(p.Character)
+	return h and h.Health > 0
 end
 
-local function sameTeam(player)
-	return LP.Team and player.Team == LP.Team
+local function sameTeam(p)
+	return LP.Team ~= nil and p.Team == LP.Team
 end
 
--- ====================== CHARACTER ======================
+-- ====================== AUTO RUN ======================
 local function applySpeed()
 	local hum = getHum(LP.Character)
-	if not hum then return end
-	local base = 16
-	hum.WalkSpeed = S.AutoRun and (base * AUTO_RUN_BOOST) or base
+	if hum then
+		hum.WalkSpeed = S.AutoRun and (16 * SPEED_BOOST) or 16
+	end
 end
 
 LP.CharacterAdded:Connect(function()
-	task.wait(0.3)
+	task.wait(0.4)
 	applySpeed()
 end)
 
 -- ====================== ESP ======================
 local ESPFolder = make("Folder", {Name = "EmberESP"}, Workspace)
-local ESPData = {}
+local Data = {}
 
-local function clearESP(player)
-	local data = ESPData[player]
-	if data then
-		if data.folder then data.folder:Destroy() end
-		ESPData[player] = nil
+local function remove(p)
+	local d = Data[p]
+	if d then
+		pcall(function()
+			if d.folder then d.folder:Destroy() end
+		end)
+		Data[p] = nil
 	end
 end
 
-local function createESP(player, character)
-	clearESP(player)
-
-	local root = getRoot(character)
+local function create(p, char)
+	remove(p)
+	local root = getRoot(char)
 	if not root then return end
 
-	local folder = make("Folder", {Name = tostring(player.UserId)}, ESPFolder)
+	local folder = make("Folder", {Name = tostring(p.UserId)}, ESPFolder)
 
-	local highlight = make("Highlight", {
-		Adornee = character,
-		DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
-		FillTransparency = 0.72,
-		OutlineTransparency = 0.15,
-		FillColor = Color3.fromRGB(80, 220, 255),
-		OutlineColor = Color3.fromRGB(80, 220, 255),
+	local hl = make("Highlight", {
+		Adornee = char,
+		DepthMode = Enum.HighlightDepthMode.AlwaysOnTop, -- atravessa parede
+		FillTransparency = 0.65,
+		OutlineTransparency = 0.05,
+		FillColor = Color3.fromRGB(70, 210, 255),
+		OutlineColor = Color3.fromRGB(70, 210, 255),
 	}, folder)
 
-	local billboard = make("BillboardGui", {
+	local bill = make("BillboardGui", {
 		Adornee = root,
 		AlwaysOnTop = true,
-		Size = UDim2.fromOffset(200, 40),
-		StudsOffset = Vector3.new(0, 3.2, 0),
-		MaxDistance = ESP_MAX_DIST,
+		Size = UDim2.fromOffset(180, 36),
+		StudsOffset = Vector3.new(0, 3.1, 0),
+		MaxDistance = ESP_DIST,
 	}, folder)
 
 	local label = make("TextLabel", {
@@ -122,135 +116,131 @@ local function createESP(player, character)
 		Size = UDim2.fromScale(1, 1),
 		Font = Enum.Font.GothamBold,
 		TextSize = 13,
-		TextStrokeTransparency = 0.4,
+		TextStrokeTransparency = 0.3,
 		TextColor3 = Color3.new(1, 1, 1),
-		Text = player.DisplayName,
-	}, billboard)
+		Text = p.DisplayName,
+	}, bill)
 
-	ESPData[player] = {
+	Data[p] = {
 		folder = folder,
-		highlight = highlight,
-		billboard = billboard,
+		hl = hl,
+		bill = bill,
 		label = label,
+		char = char,
 	}
 end
 
-local function updateESP(player)
-	if player == LP then return end
-	local data = ESPData[player]
-	if not data or not player.Character then return end
+local function update(p)
+	if p == LP then return end
+	local d = Data[p]
+	if not d then return end
 
-	local root = getRoot(player.Character)
-	local ownRoot = getRoot(LP.Character)
-	local hum = getHum(player.Character)
+	local char = p.Character
+	local root = getRoot(char)
+	local own = getRoot(LP.Character)
+	local hum = getHum(char)
 
-	if not root or not ownRoot or not hum or hum.Health <= 0 then
-		clearESP(player)
+	-- Se o personagem mudou ou morreu, limpa
+	if not char or not root or not own or not hum or hum.Health <= 0 or d.char ~= char then
+		remove(p)
 		return
 	end
 
-	local dist = (ownRoot.Position - root.Position).Magnitude
-	local within = dist <= ESP_MAX_DIST
-	local teamOk = not S.TeamCheck or not sameTeam(player)
-	local enabled = S.ESP and within and teamOk
-
-	-- Visibility check
-	local visible = true
-	if within then
-		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Exclude
-		params.FilterDescendantsInstances = {LP.Character, player.Character}
-		local hit = Workspace:Raycast(ownRoot.Position, root.Position - ownRoot.Position, params)
-		if hit then visible = false end
+	-- Se o Highlight sumiu (jogo apagou), recria
+	if not d.hl or not d.hl.Parent then
+		create(p, char)
+		return
 	end
 
-	local color = visible and Color3.fromRGB(80, 220, 255) or Color3.fromRGB(255, 90, 110)
+	local dist = (own.Position - root.Position).Magnitude
+	local ok = S.ESP and dist <= ESP_DIST and (not S.TeamCheck or not sameTeam(p))
 
-	data.highlight.Enabled = enabled
-	data.highlight.FillColor = color
-	data.highlight.OutlineColor = color
-	data.billboard.Enabled = enabled
+	local visible = true
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = {LP.Character, char}
+	local hit = Workspace:Raycast(own.Position, root.Position - own.Position, params)
+	if hit then visible = false end
 
-	data.label.Text = string.format("%s  •  %dm", player.DisplayName, math.floor(dist))
+	local col = visible and Color3.fromRGB(70, 210, 255) or Color3.fromRGB(255, 85, 100)
+
+	d.hl.Enabled = ok
+	d.hl.FillColor = col
+	d.hl.OutlineColor = col
+	d.bill.Enabled = ok
+	d.label.Text = string.format("%s  •  %dm", p.DisplayName, math.floor(dist))
 end
 
-local function setupPlayer(player)
-	if player == LP then return end
+local function track(p)
+	if p == LP then return end
 
-	local function onCharacter(char)
+	local function onChar(char)
 		task.defer(function()
-			local hum = getHum(char)
-			if hum then
-				hum.Died:Connect(function()
-					clearESP(player)
-				end)
+			task.wait(0.3)
+			if p.Character == char and isAlive(p) then
+				create(p, char)
 			end
-			createESP(player, char)
 		end)
+
+		local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 3)
+		if hum then
+			hum.Died:Connect(function()
+				remove(p)
+			end)
+		end
 	end
 
-	player.CharacterAdded:Connect(onCharacter)
-	if player.Character then
-		onCharacter(player.Character)
+	p.CharacterAdded:Connect(onChar)
+	if p.Character then
+		onChar(p.Character)
 	end
 end
 
 for _, p in ipairs(Players:GetPlayers()) do
-	setupPlayer(p)
+	track(p)
 end
-Players.PlayerAdded:Connect(setupPlayer)
-Players.PlayerRemoving:Connect(clearESP)
+Players.PlayerAdded:Connect(track)
+Players.PlayerRemoving:Connect(remove)
 
--- ====================== AIMBOT (HARD LOCK) ======================
-local currentTarget = nil
-
-local function isVisibleToCamera(part)
-	local ownRoot = getRoot(LP.Character)
-	if not ownRoot then return false end
-
+-- ====================== AIMBOT ======================
+local function canSee(part)
+	local own = getRoot(LP.Character)
+	if not own then return false end
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = {LP.Character}
-	local hit = Workspace:Raycast(ownRoot.Position, part.Position - ownRoot.Position, params)
-
-	if hit and not hit.Instance:IsDescendantOf(part.Parent) then
-		return false
-	end
-	return true
+	local hit = Workspace:Raycast(own.Position, part.Position - own.Position, params)
+	return not hit or hit.Instance:IsDescendantOf(part.Parent)
 end
 
-local function findBestTarget()
-	local best = nil
-	local bestDist = math.huge
+local function getTarget()
+	local best, bestDist = nil, math.huge
 	local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-	local ownRoot = getRoot(LP.Character)
-	if not ownRoot then return nil end
+	local own = getRoot(LP.Character)
+	if not own then return nil end
 
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player == LP then continue end
-		if not player.Character or not isAlive(player) then continue end
-		if S.TeamCheck and sameTeam(player) then continue end
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p == LP or not p.Character or not isAlive(p) then continue end
+		if S.TeamCheck and sameTeam(p) then continue end
 
-		local head = player.Character:FindFirstChild("Head")
+		local head = p.Character:FindFirstChild("Head")
 		if not head then continue end
 
-		local dist3d = (ownRoot.Position - head.Position).Magnitude
-		if dist3d > AIM_MAX_DIST then continue end
+		local dist = (own.Position - head.Position).Magnitude
+		if dist > AIM_DIST then continue end
 
-		local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+		local sp, onScreen = Camera:WorldToViewportPoint(head.Position)
 		if not onScreen then continue end
 
-		local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-		if screenDist > FOV_RADIUS then continue end
-
-		if not isVisibleToCamera(head) then continue end
+		local screenDist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+		if screenDist > FOV then continue end
+		if not canSee(head) then continue end
 
 		if screenDist < bestDist then
 			bestDist = screenDist
-			best = player
+			best = head
 		end
 	end
-
 	return best
 end
 
@@ -259,46 +249,42 @@ local Gui = make("ScreenGui", {
 	Name = "EmbersCheats",
 	ResetOnSpawn = false,
 	IgnoreGuiInset = true,
-	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-	DisplayOrder = 50,
+	DisplayOrder = 60,
 }, PlayerGui)
 
--- Botão principal
-local ToggleBtn = make("TextButton", {
+local Toggle = make("TextButton", {
 	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -16, 0, 16),
-	Size = UDim2.fromOffset(72, 48),
-	BackgroundColor3 = Color3.fromRGB(18, 22, 32),
+	Position = UDim2.new(1, -14, 0, 14),
+	Size = UDim2.fromOffset(74, 46),
+	BackgroundColor3 = Color3.fromRGB(16, 20, 30),
 	Text = "Ember",
-	TextColor3 = Color3.fromRGB(80, 220, 255),
+	TextColor3 = Color3.fromRGB(70, 210, 255),
 	TextSize = 15,
 	Font = Enum.Font.GothamBold,
 	AutoButtonColor = false,
 }, Gui)
-corner(ToggleBtn, 14)
-stroke(ToggleBtn, Color3.fromRGB(80, 220, 255), 0.4)
+corner(Toggle, 13)
+stroke(Toggle, Color3.fromRGB(70, 210, 255))
 
--- Painel
 local Panel = make("Frame", {
 	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -16, 0, 74),
-	Size = UDim2.fromOffset(260, 280),
-	BackgroundColor3 = Color3.fromRGB(14, 17, 26),
+	Position = UDim2.new(1, -14, 0, 70),
+	Size = UDim2.fromOffset(250, 270),
+	BackgroundColor3 = Color3.fromRGB(12, 15, 24),
 	Visible = true,
 }, Gui)
-corner(Panel, 16)
-stroke(Panel, Color3.fromRGB(50, 60, 80), 0.4)
+corner(Panel, 15)
+stroke(Panel, Color3.fromRGB(45, 55, 75))
 
--- Header
 local Header = make("Frame", {
-	Size = UDim2.new(1, 0, 0, 50),
-	BackgroundColor3 = Color3.fromRGB(20, 25, 38),
+	Size = UDim2.new(1, 0, 0, 48),
+	BackgroundColor3 = Color3.fromRGB(18, 23, 35),
 }, Panel)
-corner(Header, 16)
+corner(Header, 15)
 
 make("TextLabel", {
 	BackgroundTransparency = 1,
-	Position = UDim2.fromOffset(16, 14),
+	Position = UDim2.fromOffset(14, 13),
 	Size = UDim2.new(1, -50, 0, 22),
 	Text = "Ember's Cheats",
 	TextColor3 = Color3.fromRGB(240, 245, 255),
@@ -307,177 +293,158 @@ make("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Left,
 }, Header)
 
-local CloseBtn = make("TextButton", {
+local Close = make("TextButton", {
 	AnchorPoint = Vector2.new(1, 0.5),
-	Position = UDim2.new(1, -8, 0.5, 0),
+	Position = UDim2.new(1, -6, 0.5, 0),
 	Size = UDim2.fromOffset(36, 36),
 	BackgroundTransparency = 1,
 	Text = "✕",
-	TextColor3 = Color3.fromRGB(150, 160, 180),
-	TextSize = 18,
+	TextColor3 = Color3.fromRGB(140, 150, 170),
+	TextSize = 17,
 }, Header)
 
--- Conteúdo
 local Content = make("Frame", {
 	BackgroundTransparency = 1,
-	Position = UDim2.fromOffset(14, 60),
-	Size = UDim2.new(1, -28, 1, -74),
+	Position = UDim2.fromOffset(12, 58),
+	Size = UDim2.new(1, -24, 1, -70),
 }, Panel)
+make("UIListLayout", {Padding = UDim.new(0, 9)}, Content)
 
-make("UIListLayout", {
-	Padding = UDim.new(0, 10),
-	SortOrder = Enum.SortOrder.LayoutOrder,
-}, Content)
-
-local function createToggle(text, default)
-	local frame = make("Frame", {
-		Size = UDim2.new(1, 0, 0, 48),
-		BackgroundColor3 = Color3.fromRGB(24, 30, 44),
+local function makeToggle(name, default)
+	local f = make("Frame", {
+		Size = UDim2.new(1, 0, 0, 46),
+		BackgroundColor3 = Color3.fromRGB(22, 28, 42),
 	}, Content)
-	corner(frame, 12)
+	corner(f, 11)
 
 	make("TextLabel", {
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(14, 0),
+		Position = UDim2.fromOffset(12, 0),
 		Size = UDim2.new(1, -70, 1, 0),
-		Text = text,
-		TextColor3 = Color3.fromRGB(235, 240, 250),
+		Text = name,
+		TextColor3 = Color3.fromRGB(230, 235, 245),
 		TextSize = 14,
 		Font = Enum.Font.GothamMedium,
 		TextXAlignment = Enum.TextXAlignment.Left,
-	}, frame)
+	}, f)
 
-	local switch = make("Frame", {
+	local sw = make("Frame", {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -12, 0.5, 0),
-		Size = UDim2.fromOffset(44, 26),
-		BackgroundColor3 = default and Color3.fromRGB(80, 220, 255) or Color3.fromRGB(55, 65, 85),
-	}, frame)
-	corner(switch, 13)
+		Position = UDim2.new(1, -10, 0.5, 0),
+		Size = UDim2.fromOffset(42, 24),
+		BackgroundColor3 = default and Color3.fromRGB(70, 210, 255) or Color3.fromRGB(50, 58, 75),
+	}, f)
+	corner(sw, 12)
 
 	local knob = make("Frame", {
 		AnchorPoint = Vector2.new(0, 0.5),
-		Position = default and UDim2.new(1, -24, 0.5, 0) or UDim2.fromOffset(2, 0.5),
-		Size = UDim2.fromOffset(22, 22),
+		Position = default and UDim2.new(1, -22, 0.5, 0) or UDim2.fromOffset(2, 0.5),
+		Size = UDim2.fromOffset(20, 20),
 		BackgroundColor3 = Color3.new(1, 1, 1),
-	}, switch)
-	corner(knob, 11)
+	}, sw)
+	corner(knob, 10)
 
 	local btn = make("TextButton", {
 		BackgroundTransparency = 1,
 		Size = UDim2.fromScale(1, 1),
 		Text = "",
-	}, frame)
+	}, f)
 
-	return {
-		btn = btn,
-		switch = switch,
-		knob = knob,
-		value = default,
-	}
+	return {btn = btn, sw = sw, knob = knob, on = default}
 end
 
-local tAim = createToggle("Aimbot Hard Lock", false)
-local tESP = createToggle("ESP", true)
-local tTeam = createToggle("Ignorar Time", true)
-local tRun = createToggle("Auto Run (+5%)", false)
-
-local function setToggle(t, value)
-	t.value = value
-	local color = value and Color3.fromRGB(80, 220, 255) or Color3.fromRGB(55, 65, 85)
-	local pos = value and UDim2.new(1, -24, 0.5, 0) or UDim2.fromOffset(2, 0.5)
-
-	TweenService:Create(t.switch, TweenInfo.new(0.15), {BackgroundColor3 = color}):Play()
-	TweenService:Create(t.knob, TweenInfo.new(0.15), {Position = pos}):Play()
+local function setT(t, v)
+	t.on = v
+	local col = v and Color3.fromRGB(70, 210, 255) or Color3.fromRGB(50, 58, 75)
+	local pos = v and UDim2.new(1, -22, 0.5, 0) or UDim2.fromOffset(2, 0.5)
+	TweenService:Create(t.sw, TweenInfo.new(0.14), {BackgroundColor3 = col}):Play()
+	TweenService:Create(t.knob, TweenInfo.new(0.14), {Position = pos}):Play()
 end
+
+local tAim  = makeToggle("Aimbot Hard Lock", false)
+local tESP  = makeToggle("ESP", true)
+local tTeam = makeToggle("Ignorar Time", true)
+local tRun  = makeToggle("Auto Run (+5%)", false)
 
 -- ====================== CONNECTIONS ======================
 tAim.btn.MouseButton1Click:Connect(function()
 	S.Aim = not S.Aim
-	setToggle(tAim, S.Aim)
+	setT(tAim, S.Aim)
 end)
-
 tESP.btn.MouseButton1Click:Connect(function()
 	S.ESP = not S.ESP
-	setToggle(tESP, S.ESP)
+	setT(tESP, S.ESP)
 end)
-
 tTeam.btn.MouseButton1Click:Connect(function()
 	S.TeamCheck = not S.TeamCheck
-	setToggle(tTeam, S.TeamCheck)
+	setT(tTeam, S.TeamCheck)
 end)
-
 tRun.btn.MouseButton1Click:Connect(function()
 	S.AutoRun = not S.AutoRun
-	setToggle(tRun, S.AutoRun)
+	setT(tRun, S.AutoRun)
 	applySpeed()
 end)
 
-ToggleBtn.MouseButton1Click:Connect(function()
+Toggle.MouseButton1Click:Connect(function()
 	S.Panel = not S.Panel
 	Panel.Visible = S.Panel
 end)
-
-CloseBtn.MouseButton1Click:Connect(function()
+Close.MouseButton1Click:Connect(function()
 	S.Panel = false
 	Panel.Visible = false
 end)
 
--- Arrastar painel
 do
-	local dragging, startPos, panelPos
-	Header.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-			dragging = true
-			startPos = input.Position
-			panelPos = Panel.Position
+	local drag, start, pos
+	Header.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+			drag = true
+			start = i.Position
+			pos = Panel.Position
 		end
 	end)
-
-	UserInputService.InputChanged:Connect(function(input)
-		if not dragging then return end
-		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
-			local delta = input.Position - startPos
-			Panel.Position = UDim2.new(panelPos.X.Scale, panelPos.X.Offset + delta.X, panelPos.Y.Scale, panelPos.Y.Offset + delta.Y)
+	UserInputService.InputChanged:Connect(function(i)
+		if not drag then return end
+		if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement then
+			local d = i.Position - start
+			Panel.Position = UDim2.new(pos.X.Scale, pos.X.Offset + d.X, pos.Y.Scale, pos.Y.Offset + d.Y)
 		end
 	end)
-
-	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-			dragging = false
+	UserInputService.InputEnded:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+			drag = false
 		end
 	end)
 end
 
--- ====================== MAIN LOOP ======================
-local espTimer = 0
-
-RunService.Heartbeat:Connect(function(dt)
-	-- ESP update
-	espTimer += dt
-	if S.ESP and espTimer >= 0.08 then
-		espTimer = 0
-		for _, player in ipairs(Players:GetPlayers()) do
-			pcall(updateESP, player)
+-- ====================== LOOP ======================
+RunService.RenderStepped:Connect(function()
+	-- ESP (tempo real, só nos que já existem)
+	if S.ESP then
+		for p in pairs(Data) do
+			pcall(update, p)
 		end
 	end
 
-	-- Aimbot Hard Lock
+	-- AIMBOT HARD LOCK (prioridade máxima)
 	if S.Aim then
-		currentTarget = findBestTarget()
-		if currentTarget and currentTarget.Character then
-			local head = currentTarget.Character:FindFirstChild("Head")
-			if head then
-				Camera.CFrame = CFrame.new(Camera.CFrame.Position, head.Position)
-			end
+		local target = getTarget()
+		if target then
+			-- Força a câmera direto (sem smooth)
+			Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Position)
 		end
 	end
 
-	-- Auto Run
+	-- AUTO RUN (só move o personagem, NÃO mexe na câmera)
 	if S.AutoRun then
 		local hum = getHum(LP.Character)
 		if hum then
-			hum:Move(Vector3.new(0, 0, -1), true)
+			applySpeed()
+			local look = Camera.CFrame.LookVector
+			local dir = Vector3.new(look.X, 0, look.Z)
+			if dir.Magnitude > 0.05 then
+				hum:Move(dir.Unit, false) -- false = mundo, não relativo à câmera de forma que gire ela
+			end
 		end
 	end
 end)
