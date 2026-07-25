@@ -34,7 +34,7 @@ local Theme = {
 	},
 	Light = {
 		bg = Color3.fromRGB(245, 248, 252),
-		panel = Color3.fromRGB(230, top = 238, 248),
+		panel = Color3.fromRGB(230, 238, 248),
 		card = Color3.fromRGB(215, 225, 240),
 		text = Color3.fromRGB(20, 30, 45),
 		muted = Color3.fromRGB(80, 100, 125),
