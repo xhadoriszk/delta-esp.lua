@@ -1,31 +1,29 @@
 --[[
-    CH DEBUG OVERLAY — LocalScript mobile-first para o seu próprio jogo Roblox.
+    CH DEBUG OVERLAY - LocalScript mobile-first para o seu proprio jogo Roblox.
 
     Coloque em:
     StarterPlayer > StarterPlayerScripts
 
-    Trava de segurança:
-    - No Studio, o painel fica disponível para testes.
+    Trava de seguranca:
+    - No Studio, o painel fica disponivel para testes.
     - Em jogo publicado, o PlaceId precisa estar na lista abaixo E o
       jogador precisa ter o atributo "CanUseCHDebug" definido como true
-      pelo seu próprio sistema de administração.
+      pelo seu proprio sistema de administracao.
 
     Exemplo no servidor, para um moderador autorizado:
         player:SetAttribute("CanUseCHDebug", true)
 
-    Um LocalScript não consegue oferecer autorização realmente inviolável;
-    a permissão publicada deve ser concedida pelo servidor.
+    Um LocalScript nao consegue oferecer autorizacao realmente inviolavel;
+    a permissao publicada deve ser concedida pelo servidor.
 ]]
 
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local GuiService = game:GetService("GuiService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 local HapticService = game:GetService("HapticService")
-local ContextActionService = game:GetService("ContextActionService")
 
 -- Local player
 local localPlayer = Players.LocalPlayer
@@ -41,15 +39,13 @@ local CONFIG = {
     ESP_FOLDER_NAME = "CH_DebugOverlay",
     GUI_NAME = "CH_DebugInterface",
     FADE_TIME = 0.12,
-    AIM_INTERVAL = 0.03,
-    AIM_SMOOTH_MIN = 0.05,
-    AIM_SMOOTH_MAX = 0.95,
-    MOBILE_AIM_BUTTON_SIZE = 76,
+    MOBILE_AIM_BUTTON_SIZE = 80,
     MOBILE_AIM_BUTTON_DEFAULT_X = 24,
-    MOBILE_AIM_BUTTON_DEFAULT_Y = -104,
-    MOBILE_FLY_BUTTON_SIZE = 60,
-    BUTTON_HEIGHT = 48,
-    TAB_HEIGHT = 40,
+    MOBILE_AIM_BUTTON_DEFAULT_Y = 120,
+    MOBILE_PADDING = 18,
+    MOBILE_FLY_BUTTON_SIZE = 64,
+    BUTTON_HEIGHT = 54,
+    TAB_HEIGHT = 44,
     DEFAULT_WALK_SPEED = 16,
     DEFAULT_JUMP_POWER = 50,
     MAX_WALK_SPEED = 100,
@@ -67,6 +63,8 @@ local theme = {
         muted = Color3.fromRGB(151, 171, 194),
         border = Color3.fromRGB(65, 89, 117),
         accent = Color3.fromRGB(77, 220, 224),
+        on = Color3.fromRGB(83, 255, 134),
+        off = Color3.fromRGB(255, 83, 104),
     },
     Light = {
         panel = Color3.fromRGB(245, 248, 252),
@@ -76,6 +74,8 @@ local theme = {
         muted = Color3.fromRGB(78, 101, 126),
         border = Color3.fromRGB(160, 182, 204),
         accent = Color3.fromRGB(0, 151, 164),
+        on = Color3.fromRGB(0, 180, 80),
+        off = Color3.fromRGB(220, 50, 70),
     },
 }
 
@@ -88,10 +88,43 @@ local subColors = {
 }
 
 local fontOptions = {
-    ["Padrão"] = Enum.Font.Gotham,
+    ["Padrao"] = Enum.Font.Gotham,
     ["Cartoon"] = Enum.Font.Cartoon,
     ["Code"] = Enum.Font.Code,
     ["Titulo"] = Enum.Font.GothamBold,
+}
+
+local labels = {
+    esp = "",
+    aim = "",
+    config = "",
+    on = "",
+    off = "",
+    speed = "",
+    jump = "",
+    fly = "",
+    run = "",
+    infinite = "",
+    theme = "",
+    color = "",
+    font = "",
+    distance = "",
+    team = "",
+    health = "",
+    box = "",
+    skeleton = "",
+    tracer = "",
+    visible = "",
+    reset = "",
+    aimPart = "",
+    fov = "",
+    mode = "",
+    close = "",
+    menu = "",
+    up = "",
+    down = "",
+    plus = "",
+    minus = "",
 }
 
 local state = {
@@ -100,7 +133,7 @@ local state = {
     teamCheck = false,
     theme = "Dark",
     subColor = "Ciano",
-    font = "Padrão",
+    font = "Padrao",
     maxDistance = 1000,
     showHealth = true,
     showDistance = true,
@@ -115,12 +148,11 @@ local state = {
     aimButtonPosition = "default",
     aimButtonX = CONFIG.MOBILE_AIM_BUTTON_DEFAULT_X,
     aimButtonY = CONFIG.MOBILE_AIM_BUTTON_DEFAULT_Y,
-    aimSmooth = 0.25,
     aimTargetPart = "Head",
     aimMaxDistance = 500,
     aimTeamCheck = true,
     aimVisibleOnly = true,
-    aimFov = 180,
+    aimFov = 360,
     -- Configs (character)
     walkSpeed = CONFIG.DEFAULT_WALK_SPEED,
     jumpPower = CONFIG.DEFAULT_JUMP_POWER,
@@ -156,13 +188,18 @@ end
 
 loadState()
 
+-- Legacy compatibility
+if state.activeTab == "Aimbot" then
+    state.activeTab = "AIM"
+end
+
 -- Clamp saved values
-state.aimSmooth = math.clamp(state.aimSmooth, CONFIG.AIM_SMOOTH_MIN, CONFIG.AIM_SMOOTH_MAX)
 state.aimFov = math.clamp(state.aimFov, 10, 360)
 state.aimMaxDistance = math.clamp(state.aimMaxDistance, 50, CONFIG.MAX_DISTANCE)
 state.walkSpeed = math.clamp(state.walkSpeed, 1, CONFIG.MAX_WALK_SPEED)
 state.jumpPower = math.clamp(state.jumpPower, 40, CONFIG.MAX_JUMP_POWER)
 state.flySpeed = math.clamp(state.flySpeed, CONFIG.FLY_SPEED_MIN, CONFIG.FLY_SPEED_MAX)
+state.maxDistance = math.clamp(state.maxDistance, CONFIG.MIN_DISTANCE, CONFIG.MAX_DISTANCE)
 
 -- Utility -----------------------------------------------------------------
 
@@ -191,9 +228,9 @@ local function pressFeedback(button: GuiObject)
     local originalSize = button.Size
     local shrink = UDim2.new(
         originalSize.X.Scale,
-        originalSize.X.Offset - 4,
+        math.max(0, originalSize.X.Offset - 4),
         originalSize.Y.Scale,
-        originalSize.Y.Offset - 4
+        math.max(0, originalSize.Y.Offset - 4)
     )
     local info = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
     local shrinkTween = TweenService:Create(button, info, { Size = shrink })
@@ -212,6 +249,31 @@ end
 local function getCurrentTheme()
     return theme[state.theme]
 end
+
+local function hapticFeedback()
+    if HapticService then
+        pcall(function()
+            HapticService:SetMotor("Vibration", Enum.UserInputType.Gamepad1, 0.3)
+            task.delay(0.05, function()
+                HapticService:SetMotor("Vibration", Enum.UserInputType.Gamepad1, 0)
+            end)
+        end)
+    end
+end
+
+-- Early GUI (used by ESP tracers) ----------------------------------------
+
+local gui = make("ScreenGui", {
+    Name = CONFIG.GUI_NAME,
+    DisplayOrder = 50,
+    IgnoreGuiInset = true,
+    ResetOnSpawn = false,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+}, playerGui) :: ScreenGui
+
+local uiESPFolder = make("Folder", {
+    Name = "UIESP",
+}, gui) :: Folder
 
 -- Character helpers -------------------------------------------------------
 
@@ -252,21 +314,6 @@ local function applyCharacterStats(character: Model?)
     humanoid.JumpPower = state.jumpPower
 end
 
-local function resetCharacterStats(character: Model?)
-    local char = character or localPlayer.Character
-    if not char then
-        return
-    end
-
-    local humanoid = getHumanoid(char)
-    if not humanoid then
-        return
-    end
-
-    humanoid.WalkSpeed = CONFIG.DEFAULT_WALK_SPEED
-    humanoid.JumpPower = CONFIG.DEFAULT_JUMP_POWER
-end
-
 -- Fly logic
 local flyBodyVelocity: BodyVelocity?
 local flyConnection: RBXScriptConnection?
@@ -296,7 +343,7 @@ end
 
 local function enableFly()
     if flyConnection then
-        return
+        disableFly()
     end
 
     local char = localPlayer.Character
@@ -305,6 +352,8 @@ local function enableFly()
     if not char or not humanoid or not root then
         return
     end
+
+    state.flyEnabled = true
 
     flyBodyVelocity = make("BodyVelocity", {
         MaxForce = Vector3.new(1e9, 1e9, 1e9),
@@ -355,7 +404,6 @@ local function toggleFly(enabled: boolean)
     else
         disableFly()
     end
-    state.flyEnabled = enabled
     saveState()
 end
 
@@ -380,6 +428,9 @@ end)
 local function setupCharacter(character: Model)
     task.defer(function()
         applyCharacterStats(character)
+        if state.flyEnabled then
+            enableFly()
+        end
     end)
 end
 
@@ -392,7 +443,10 @@ end
 
 local espFolder = make("Folder", {
     Name = CONFIG.ESP_FOLDER_NAME,
-}, playerGui) :: Folder
+}, Workspace) :: Folder
+
+local playerConnections: {[Player]: {characterAdded: RBXScriptConnection?, teamChanged: RBXScriptConnection?}} = {}
+local playerESPUI: {[Player]: {uiFolder: Folder?, tracer: Frame?, lines: {{line: Frame, a: string, b: string}}?}} = {}
 
 local function isSameTeam(player: Player): boolean
     return localPlayer.Team ~= nil and player.Team == localPlayer.Team
@@ -411,12 +465,22 @@ local function removeESP(player: Player)
     if folder then
         folder:Destroy()
     end
+
+    local uiData = playerESPUI[player]
+    if uiData and uiData.uiFolder then
+        uiData.uiFolder:Destroy()
+    end
+    playerESPUI[player] = nil
 end
 
 local function clearAllESP()
     for _, folder in espFolder:GetChildren() do
         folder:Destroy()
     end
+    for _, folder in uiESPFolder:GetChildren() do
+        folder:Destroy()
+    end
+    table.clear(playerESPUI)
 end
 
 local skeletonJoints = {
@@ -451,7 +515,7 @@ local function createESP(player: Player, character: Model)
     local highlight = make("Highlight", {
         Name = "Highlight",
         Adornee = character,
-        DepthMode = Enum.HighlightDepthMode.Occluded,
+        DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
         FillTransparency = 0.78,
         OutlineTransparency = 0.05,
     }, folder) :: Highlight
@@ -459,10 +523,10 @@ local function createESP(player: Player, character: Model)
     local billboard = make("BillboardGui", {
         Name = "Billboard",
         Adornee = root,
-        AlwaysOnTop = false,
+        AlwaysOnTop = true,
         MaxDistance = CONFIG.MAX_DISTANCE,
-        Size = UDim2.fromOffset(260, 64),
-        StudsOffset = Vector3.new(0, 3.5, 0),
+        Size = UDim2.fromOffset(280, 72),
+        StudsOffset = Vector3.new(0, 3.8, 0),
     }, folder) :: BillboardGui
 
     local label = make("TextLabel", {
@@ -491,7 +555,7 @@ local function createESP(player: Player, character: Model)
         Material = Enum.Material.Neon,
         Size = Vector3.new(4, 5, 1),
         Transparency = 1,
-    }, Workspace) :: BasePart
+    }, folder) :: BasePart
 
     local boxBillboard = make("BillboardGui", {
         Name = "BoxBillboard",
@@ -522,6 +586,10 @@ local function createESP(player: Player, character: Model)
         Transparency = 0.2,
     }, boxOutline)
 
+    local playerUIFolder = make("Folder", {
+        Name = tostring(player.UserId),
+    }, uiESPFolder) :: Folder
+
     local tracer = make("Frame", {
         Name = "Tracer",
         AnchorPoint = Vector2.new(0.5, 1),
@@ -531,11 +599,11 @@ local function createESP(player: Player, character: Model)
         Position = UDim2.new(0.5, 0, 1, -10),
         Size = UDim2.new(0, 2, 0, 100),
         Visible = false,
-    }, gui) :: Frame
+    }, playerUIFolder) :: Frame
 
     local skeletonFolder = make("Folder", {
         Name = "Skeleton",
-    }, folder) :: Folder
+    }, playerUIFolder) :: Folder
 
     local lines = {}
     for _, pair in skeletonJoints do
@@ -550,9 +618,11 @@ local function createESP(player: Player, character: Model)
         table.insert(lines, {line = line, a = pair[1], b = pair[2]})
     end
 
-    folder.BoxAdornee = boxAdornee
-    folder.Tracer = tracer
-    folder.Lines = lines
+    playerESPUI[player] = {
+        uiFolder = playerUIFolder,
+        tracer = tracer,
+        lines = lines,
+    }
 end
 
 local function updateESP(player: Player)
@@ -565,13 +635,14 @@ local function updateESP(player: Player)
         return
     end
 
+    local uiData = playerESPUI[player]
+
     local highlight = folder:FindFirstChild("Highlight") :: Highlight?
     local billboard = folder:FindFirstChild("Billboard") :: BillboardGui?
     local label = billboard and billboard:FindFirstChild("Label") :: TextLabel?
-    local skeletonFolder = folder:FindFirstChild("Skeleton") :: Folder?
-    local boxAdornee = folder.BoxAdornee :: BasePart?
-    local tracer = folder.Tracer :: Frame?
-    local lines = folder.Lines :: {{line: Frame, a: string, b: string}}?
+    local boxAdornee = folder:FindFirstChild("BoxAdornee") :: BasePart?
+    local tracer = uiData and uiData.tracer :: Frame?
+    local lines = uiData and uiData.lines :: {{line: Frame, a: string, b: string}}?
 
     local root = getCharacterRoot(player.Character)
     local ownCharacter = localPlayer.Character
@@ -620,7 +691,7 @@ local function updateESP(player: Player)
     if state.showHealth and humanoid then
         table.insert(textParts, string.format("%.0f HP", humanoid.Health))
     end
-    label.Text = table.concat(textParts, "  •  ")
+    label.Text = table.concat(textParts, " | ")
 
     if boxAdornee and enabled then
         boxAdornee.Position = root.Position
@@ -679,8 +750,6 @@ local function updateESP(player: Player)
         end
     end
 end
-
-local playerConnections: {[Player]: {characterAdded: RBXScriptConnection?, teamChanged: RBXScriptConnection?}} = {}
 
 local function setupPlayer(player: Player)
     local function characterAdded(character: Model)
@@ -791,8 +860,6 @@ end
 
 local function findAimbotTarget(): Player?
     local camera = Workspace.CurrentCamera
-    local center = getScreenCenter()
-    local fovRadius = state.aimFov
     local bestTarget: Player?
     local bestDistance = math.huge
 
@@ -836,8 +903,8 @@ local function findAimbotTarget(): Player?
             continue
         end
 
-        local screenDistance = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-        if screenDistance > fovRadius then
+        local screenDistance = (Vector2.new(screenPos.X, screenPos.Y) - getScreenCenter()).Magnitude
+        if screenDistance > state.aimFov then
             continue
         end
 
@@ -887,7 +954,12 @@ local function updateAimbotTarget()
         aimbotTarget = findAimbotTarget()
     elseif aimbotTarget.Character then
         local part = getAimbotPart(aimbotTarget.Character)
-        if not part or getDistanceFromCenter(part) > state.aimFov then
+        local onScreen = false
+        if part then
+            local _, screenVisible = Workspace.CurrentCamera:WorldToViewportPoint(part.Position)
+            onScreen = screenVisible
+        end
+        if not part or not onScreen then
             aimbotTarget = findAimbotTarget()
         else
             aimbotTargetPart = part
@@ -903,53 +975,51 @@ end
 
 -- Interface ---------------------------------------------------------------
 
-local gui = make("ScreenGui", {
-    Name = CONFIG.GUI_NAME,
-    DisplayOrder = 50,
-    IgnoreGuiInset = true,
-    ResetOnSpawn = false,
-    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-}, playerGui) :: ScreenGui
-
 local toggleButton = make("TextButton", {
+    Name = "ToggleButton",
     AnchorPoint = Vector2.new(1, 0),
+    Active = true,
     AutoButtonColor = false,
     BackgroundColor3 = getCurrentTheme().panel,
     BorderSizePixel = 0,
     Position = UDim2.new(1, -18, 0, 18),
-    Size = UDim2.fromOffset(64, 48),
+    Size = UDim2.fromOffset(68, 52),
     Text = "CH",
     TextColor3 = getAccent(),
-    TextSize = 16,
+    TextSize = 17,
     Font = Enum.Font.GothamBold,
 }, gui) :: TextButton
-corner(toggleButton, 14)
+corner(toggleButton, 16)
 local toggleStroke = stroke(toggleButton, getAccent(), 0.15)
 
 local panel = make("Frame", {
+    Name = "Panel",
     AnchorPoint = Vector2.new(1, 0),
+    Active = true,
     BackgroundColor3 = getCurrentTheme().panel,
     BorderSizePixel = 0,
     Position = UDim2.new(1, -18, 0, 78),
-    Size = UDim2.fromOffset(300, 540),
+    Size = UDim2.fromOffset(320, 560),
     Visible = state.panelOpen,
 }, gui) :: Frame
-corner(panel, 16)
+corner(panel, 18)
 local panelStroke = stroke(panel, getCurrentTheme().border, 0.15)
 
 local topBar = make("Frame", {
+    Name = "TopBar",
+    Active = true,
     BackgroundColor3 = getCurrentTheme().panelAlt,
     BorderSizePixel = 0,
-    Size = UDim2.new(1, 0, 0, 64),
+    Size = UDim2.new(1, 0, 0, 66),
 }, panel) :: Frame
-corner(topBar, 16)
+corner(topBar, 18)
 
 local title = make("TextLabel", {
     BackgroundTransparency = 1,
     Font = Enum.Font.GothamBold,
     Position = UDim2.fromOffset(17, 10),
     Size = UDim2.new(1, -72, 0, 22),
-    Text = "CH  /  DEBUG",
+    Text = "CH / DEBUG",
     TextColor3 = getCurrentTheme().text,
     TextSize = 15,
     TextXAlignment = Enum.TextXAlignment.Left,
@@ -960,33 +1030,36 @@ local subtitle = make("TextLabel", {
     Font = Enum.Font.Gotham,
     Position = UDim2.fromOffset(17, 34),
     Size = UDim2.new(1, -72, 0, 16),
-    Text = "Toque e arraste para mover",
+    Text = "Arraste para mover | Toque nas abas",
     TextColor3 = getCurrentTheme().muted,
     TextSize = 11,
     TextXAlignment = Enum.TextXAlignment.Left,
 }, topBar) :: TextLabel
 
 local closeButton = make("TextButton", {
+    Name = "CloseButton",
     AnchorPoint = Vector2.new(1, 0.5),
+    Active = true,
+    AutoButtonColor = false,
     BackgroundTransparency = 1,
     Position = UDim2.new(1, -8, 0.5, 0),
-    Size = UDim2.fromOffset(44, 44),
-    Text = "×",
+    Size = UDim2.fromOffset(48, 48),
+    Text = labels.close,
     TextColor3 = getCurrentTheme().muted,
-    TextSize = 28,
+    TextSize = 22,
     Font = Enum.Font.Gotham,
 }, topBar) :: TextButton
 
 -- Tab bar
 local tabBar = make("Frame", {
     BackgroundTransparency = 1,
-    Position = UDim2.fromOffset(15, 68),
+    Position = UDim2.fromOffset(15, 74),
     Size = UDim2.new(1, -30, 0, CONFIG.TAB_HEIGHT),
 }, panel) :: Frame
 
 make("UIListLayout", {
     FillDirection = Enum.FillDirection.Horizontal,
-    Padding = UDim.new(0, 6),
+    Padding = UDim.new(0, 8),
     SortOrder = Enum.SortOrder.LayoutOrder,
     HorizontalAlignment = Enum.HorizontalAlignment.Center,
     VerticalAlignment = Enum.VerticalAlignment.Center,
@@ -994,47 +1067,48 @@ make("UIListLayout", {
 
 local tabButtons = {}
 
-local function createTabButton(name: string): TextButton
+local function createTabButton(name: string, icon: string): TextButton
     local button = make("TextButton", {
+        Active = true,
         AutoButtonColor = false,
         BackgroundColor3 = getCurrentTheme().surface,
         BorderSizePixel = 0,
-        Size = UDim2.new(1 / 3, -4, 1, 0),
+        Size = UDim2.new(1 / 3, -6, 1, 0),
         Text = name,
         TextColor3 = getCurrentTheme().text,
         TextSize = 13,
         Font = Enum.Font.GothamBold,
     }, tabBar) :: TextButton
-    corner(button, 10)
+    corner(button, 12)
     stroke(button, getCurrentTheme().border, 0.55)
     tabButtons[name] = button
     return button
 end
 
-local espTabButton = createTabButton("ESP")
-local aimbotTabButton = createTabButton("Aimbot")
-local configsTabButton = createTabButton("Configs")
+local espTabButton = createTabButton("ESP", labels.esp)
+local aimbotTabButton = createTabButton("AIM", labels.aim)
+local configsTabButton = createTabButton("CFG", labels.config)
 
 -- Tab content containers
 local function createTabContent(): ScrollingFrame
     local frame = make("ScrollingFrame", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(15, 116),
-        Size = UDim2.new(1, -30, 1, -132),
+        Position = UDim2.fromOffset(15, 124),
+        Size = UDim2.new(1, -30, 1, -142),
         CanvasSize = UDim2.new(1, 0, 0, 0),
-        ScrollBarThickness = 4,
+        ScrollBarThickness = 5,
         ScrollingDirection = Enum.ScrollingDirection.Y,
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
         VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
     }, panel) :: ScrollingFrame
 
     make("UIListLayout", {
-        Padding = UDim.new(0, 8),
+        Padding = UDim.new(0, 10),
         SortOrder = Enum.SortOrder.LayoutOrder,
     }, frame)
 
     make("UIPadding", {
-        PaddingBottom = UDim.new(0, 8),
+        PaddingBottom = UDim.new(0, 10),
     }, frame)
 
     return frame
@@ -1045,28 +1119,12 @@ local contentAimbot = createTabContent()
 local contentConfigs = createTabContent()
 
 -- UI Builder helpers
-local function optionButton(parent: Instance, text: string): TextButton
-    local button = make("TextButton", {
-        AutoButtonColor = false,
-        BackgroundColor3 = getCurrentTheme().surface,
-        BorderSizePixel = 0,
-        Size = UDim2.new(1, 0, 0, CONFIG.BUTTON_HEIGHT),
-        Text = text,
-        TextColor3 = getCurrentTheme().text,
-        TextSize = 14,
-        Font = Enum.Font.GothamMedium,
-    }, parent) :: TextButton
-    corner(button, 12)
-    stroke(button, getCurrentTheme().border, 0.55)
-    return button
-end
-
-local function sectionLabel(parent: Instance, text: string)
+local function sectionLabel(parent: Instance, icon: string, text: string)
     local label = make("TextLabel", {
         BackgroundTransparency = 1,
         Font = Enum.Font.GothamBold,
-        Size = UDim2.new(1, 0, 0, 26),
-        Text = text,
+        Size = UDim2.new(1, 0, 0, 28),
+        Text = text:upper(),
         TextColor3 = getCurrentTheme().muted,
         TextSize = 11,
         TextXAlignment = Enum.TextXAlignment.Left,
@@ -1074,45 +1132,187 @@ local function sectionLabel(parent: Instance, text: string)
     return label
 end
 
--- Slider builder (mobile-friendly)
-local function createSlider(parent: Instance, min: number, max: number, labelText: string)
+local function optionButton(parent: Instance, icon: string, text: string): TextButton
     local container = make("Frame", {
         BackgroundColor3 = getCurrentTheme().surface,
         BorderSizePixel = 0,
-        Size = UDim2.new(1, 0, 0, 60),
+        Size = UDim2.new(1, 0, 0, CONFIG.BUTTON_HEIGHT),
     }, parent) :: Frame
-    corner(container, 12)
+    corner(container, 14)
     stroke(container, getCurrentTheme().border, 0.55)
+
+    local iconLabel = make("TextLabel", {
+        Name = "Icon",
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        Position = UDim2.fromOffset(14, 0),
+        Size = UDim2.fromOffset(30, CONFIG.BUTTON_HEIGHT),
+        Text = icon,
+        TextColor3 = getAccent(),
+        TextSize = 18,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+    }, container) :: TextLabel
+
+    local textLabel = make("TextLabel", {
+        Name = "Text",
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamMedium,
+        Position = UDim2.fromOffset(46, 0),
+        Size = UDim2.new(1, -110, 1, 0),
+        Text = text,
+        TextColor3 = getCurrentTheme().text,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+    }, container) :: TextLabel
+
+    local button = make("TextButton", {
+        Active = true,
+        AutoButtonColor = false,
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        Text = "",
+    }, container) :: TextButton
+
+    return button
+end
+
+local function createToggle(parent: Instance, icon: string, text: string): {container: Frame, button: TextButton, text: TextLabel, status: Frame, knob: Frame}
+    local container = make("Frame", {
+        BackgroundColor3 = getCurrentTheme().surface,
+        BorderSizePixel = 0,
+        Size = UDim2.new(1, 0, 0, CONFIG.BUTTON_HEIGHT),
+    }, parent) :: Frame
+    corner(container, 14)
+    stroke(container, getCurrentTheme().border, 0.55)
+
+    local iconLabel = make("TextLabel", {
+        Name = "Icon",
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        Position = UDim2.fromOffset(14, 0),
+        Size = UDim2.fromOffset(30, CONFIG.BUTTON_HEIGHT),
+        Text = icon,
+        TextColor3 = getAccent(),
+        TextSize = 18,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+    }, container) :: TextLabel
+
+    local textLabel = make("TextLabel", {
+        Name = "Text",
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamMedium,
+        Position = UDim2.fromOffset(46, 0),
+        Size = UDim2.new(1, -110, 1, 0),
+        Text = text,
+        TextColor3 = getCurrentTheme().text,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+    }, container) :: TextLabel
+
+    local switchFrame = make("Frame", {
+        Name = "SwitchFrame",
+        AnchorPoint = Vector2.new(1, 0.5),
+        BackgroundColor3 = getCurrentTheme().border,
+        BorderSizePixel = 0,
+        Position = UDim2.new(1, -14, 0.5, 0),
+        Size = UDim2.fromOffset(48, 28),
+    }, container) :: Frame
+    corner(switchFrame, 14)
+
+    local switchKnob = make("Frame", {
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 2, 0.5, 0),
+        Size = UDim2.fromOffset(24, 24),
+    }, switchFrame) :: Frame
+    corner(switchKnob, 12)
+
+    local button = make("TextButton", {
+        Active = true,
+        AutoButtonColor = false,
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        Text = "",
+    }, container) :: TextButton
+
+    return {
+        container = container,
+        button = button,
+        text = textLabel,
+        status = switchFrame,
+        knob = switchKnob,
+    }
+end
+
+local function updateToggle(toggle, enabled: boolean)
+    local current = getCurrentTheme()
+    local targetColor = enabled and getAccent() or current.off
+    local targetPos = enabled and UDim2.new(1, -26, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+
+    TweenService:Create(toggle.status, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = targetColor,
+    }):Play()
+    TweenService:Create(toggle.knob, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Position = targetPos,
+    }):Play()
+end
+
+local function createSlider(parent: Instance, min: number, max: number, icon: string, labelText: string)
+    local container = make("Frame", {
+        BackgroundColor3 = getCurrentTheme().surface,
+        BorderSizePixel = 0,
+        Size = UDim2.new(1, 0, 0, 70),
+    }, parent) :: Frame
+    corner(container, 14)
+    stroke(container, getCurrentTheme().border, 0.55)
+
+    local iconLabel = make("TextLabel", {
+        Name = "Icon",
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        Position = UDim2.fromOffset(14, 8),
+        Size = UDim2.fromOffset(30, 22),
+        Text = icon,
+        TextColor3 = getAccent(),
+        TextSize = 18,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, container) :: TextLabel
 
     local title = make("TextLabel", {
         BackgroundTransparency = 1,
         Font = Enum.Font.GothamMedium,
-        Position = UDim2.fromOffset(12, 8),
-        Size = UDim2.new(1, -80, 0, 18),
+        Position = UDim2.fromOffset(46, 8),
+        Size = UDim2.new(1, -110, 0, 22),
         Text = labelText,
         TextColor3 = getCurrentTheme().text,
-        TextSize = 13,
+        TextSize = 14,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, container) :: TextLabel
 
     local valueLabel = make("TextLabel", {
+        Name = "Value",
         BackgroundTransparency = 1,
         Font = Enum.Font.GothamBold,
-        Position = UDim2.new(1, -72, 0, 8),
-        Size = UDim2.fromOffset(60, 18),
+        Position = UDim2.new(1, -70, 0, 8),
+        Size = UDim2.fromOffset(56, 22),
         Text = "0",
         TextColor3 = getAccent(),
-        TextSize = 13,
+        TextSize = 14,
         TextXAlignment = Enum.TextXAlignment.Right,
     }, container) :: TextLabel
 
     local track = make("Frame", {
         BackgroundColor3 = getCurrentTheme().border,
         BorderSizePixel = 0,
-        Position = UDim2.new(0, 12, 0, 36),
-        Size = UDim2.new(1, -24, 0, 6),
+        Position = UDim2.new(0, 14, 0, 40),
+        Size = UDim2.new(1, -28, 0, 8),
     }, container) :: Frame
-    corner(track, 3)
+    corner(track, 4)
 
     local fill = make("Frame", {
         BackgroundColor3 = getAccent(),
@@ -1120,17 +1320,17 @@ local function createSlider(parent: Instance, min: number, max: number, labelTex
         Position = UDim2.fromScale(0, 0),
         Size = UDim2.fromScale(0, 1),
     }, track) :: Frame
-    corner(fill, 3)
+    corner(fill, 4)
 
     local knob = make("Frame", {
         AnchorPoint = Vector2.new(0.5, 0.5),
-        BackgroundColor3 = getCurrentTheme().text,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
         Position = UDim2.fromScale(0, 0.5),
-        Size = UDim2.fromOffset(16, 16),
+        Size = UDim2.fromOffset(20, 20),
         ZIndex = 2,
     }, track) :: Frame
-    corner(knob, 8)
+    corner(knob, 10)
 
     return {
         container = container,
@@ -1163,136 +1363,160 @@ end
 local sliders = {}
 
 -- ESP tab content
-sectionLabel(contentESP, "CONTROLES PRINCIPAIS")
-local espButton = optionButton(contentESP, "")
-local teamButton = optionButton(contentESP, "")
-local distanceButton = optionButton(contentESP, "")
+sectionLabel(contentESP, labels.esp, "CONTROLES")
+local espToggle = createToggle(contentESP, labels.esp, "ESP geral")
+local teamToggle = createToggle(contentESP, labels.team, "Ignorar time")
+local maxDistanceSlider = createSlider(contentESP, CONFIG.MIN_DISTANCE, CONFIG.MAX_DISTANCE, labels.distance, "Alcance maximo")
+table.insert(sliders, maxDistanceSlider)
 
-sectionLabel(contentESP, "EXIBIÇÃO")
-local healthButton = optionButton(contentESP, "")
-local distLabelButton = optionButton(contentESP, "")
-local boxesButton = optionButton(contentESP, "")
-local skeletonButton = optionButton(contentESP, "")
-local tracersButton = optionButton(contentESP, "")
+sectionLabel(contentESP, labels.visible, "EXIBICAO")
+local healthToggle = createToggle(contentESP, labels.health, "Mostrar vida")
+local distLabelToggle = createToggle(contentESP, labels.distance, "Mostrar distancia")
+local boxesToggle = createToggle(contentESP, labels.box, "Box ESP")
+local skeletonToggle = createToggle(contentESP, labels.skeleton, "Skeleton ESP")
+local tracersToggle = createToggle(contentESP, labels.tracer, "Tracers")
 
-sectionLabel(contentESP, "APARÊNCIA")
-local themeButton = optionButton(contentESP, "")
-local subColorButton = optionButton(contentESP, "")
-local fontButton = optionButton(contentESP, "")
-local rangeButton = optionButton(contentESP, "")
+sectionLabel(contentESP, labels.color, "APARENCIA")
+local themeButton = optionButton(contentESP, labels.theme, "Tema")
+local subColorButton = optionButton(contentESP, labels.color, "Sub cor")
+local fontButton = optionButton(contentESP, labels.font, "Fonte")
 
-local hint = make("TextLabel", {
+local espHint = make("TextLabel", {
     BackgroundTransparency = 1,
     Font = Enum.Font.Gotham,
-    Size = UDim2.new(1, 0, 0, 40),
-    Text = "Amarelo = visível  •  Vermelho = atrás da parede\nBranco = informações extras ligadas",
+    Size = UDim2.new(1, 0, 0, 44),
+    Text = "Amarelo = visivel | Vermelho = atras da parede\nToque em qualquer botao para alternar",
     TextColor3 = getCurrentTheme().muted,
     TextSize = 10,
     TextWrapped = true,
 }, contentESP) :: TextLabel
 
 -- Aimbot tab content
-sectionLabel(contentAimbot, "AIMBOT")
-local aimbotButton = optionButton(contentAimbot, "")
-local aimModeButton = optionButton(contentAimbot, "")
-local aimButtonVisibleButton = optionButton(contentAimbot, "")
-local aimPartButton = optionButton(contentAimbot, "")
-local aimDistanceButton = optionButton(contentAimbot, "")
-local aimFovButton = optionButton(contentAimbot, "")
-local aimSmoothButton = optionButton(contentAimbot, "")
-local aimTeamButton = optionButton(contentAimbot, "")
-local aimVisibleButton = optionButton(contentAimbot, "")
-local aimResetPositionButton = optionButton(contentAimbot, "")
+sectionLabel(contentAimbot, labels.aim, "AIMBOT")
+local aimbotToggle = createToggle(contentAimbot, labels.aim, "Aimbot")
+local aimModeButton = optionButton(contentAimbot, labels.mode, "Modo de ativacao")
+local aimButtonVisibleToggle = createToggle(contentAimbot, labels.visible, "Botao de mira")
+local aimPartButton = optionButton(contentAimbot, labels.aimPart, "Parte do alvo")
+local aimMaxDistanceSlider = createSlider(contentAimbot, 50, 2000, labels.distance, "Alcance maximo")
+table.insert(sliders, aimMaxDistanceSlider)
+local aimFovSlider = createSlider(contentAimbot, 10, 360, labels.fov, "FOV")
+table.insert(sliders, aimFovSlider)
+local aimTeamToggle = createToggle(contentAimbot, labels.team, "Ignorar time")
+local aimVisibleToggle = createToggle(contentAimbot, labels.visible, "So visivel")
+local aimResetPositionButton = optionButton(contentAimbot, labels.reset, "Resetar botao de mira")
 
 local aimbotHint = make("TextLabel", {
     BackgroundTransparency = 1,
     Font = Enum.Font.Gotham,
     Size = UDim2.new(1, 0, 0, 64),
-    Text = "Modos: Segurar (segura o botão), Alternar (toque liga/desliga), Automático (sempre ativo).\nArraste o botão de mira para reposicioná-lo. Toque para usar.",
+    Text = "Modos: Segurar (segura o botao), Alternar (toque liga/desliga), Automatico (sempre ativo).\nArraste o botao de mira para reposiciona-lo. Toque para usar.",
     TextColor3 = getCurrentTheme().muted,
     TextSize = 10,
     TextWrapped = true,
 }, contentAimbot) :: TextLabel
 
 -- Configs tab content
-sectionLabel(contentConfigs, "PERSONAGEM")
-local speedButton = optionButton(contentConfigs, "")
-local jumpButton = optionButton(contentConfigs, "")
-local autoRunButton = optionButton(contentConfigs, "")
-local infiniteJumpButton = optionButton(contentConfigs, "")
+sectionLabel(contentConfigs, labels.speed, "PERSONAGEM")
+local walkSpeedSlider = createSlider(contentConfigs, 1, CONFIG.MAX_WALK_SPEED, labels.speed, "Velocidade")
+table.insert(sliders, walkSpeedSlider)
+local jumpPowerSlider = createSlider(contentConfigs, 40, CONFIG.MAX_JUMP_POWER, labels.jump, "Pulo")
+table.insert(sliders, jumpPowerSlider)
+local autoRunToggle = createToggle(contentConfigs, labels.run, "Auto correr")
+local infiniteJumpToggle = createToggle(contentConfigs, labels.infinite, "Pulo infinito")
 
-sectionLabel(contentConfigs, "FLY")
-local flyButton = optionButton(contentConfigs, "")
-local flySpeedSlider = createSlider(contentConfigs, CONFIG.FLY_SPEED_MIN, CONFIG.FLY_SPEED_MAX, "Fly speed")
+sectionLabel(contentConfigs, labels.fly, "FLY")
+local flyToggle = createToggle(contentConfigs, labels.fly, "Fly")
+local flySpeedSlider = createSlider(contentConfigs, CONFIG.FLY_SPEED_MIN, CONFIG.FLY_SPEED_MAX, labels.fly, "Fly speed")
 table.insert(sliders, flySpeedSlider)
 
-local resetConfigsButton = optionButton(contentConfigs, "")
+local resetConfigsButton = optionButton(contentConfigs, labels.reset, "Resetar configuracoes")
 
 local configsHint = make("TextLabel", {
     BackgroundTransparency = 1,
     Font = Enum.Font.Gotham,
     Size = UDim2.new(1, 0, 0, 64),
-    Text = "Use o botão pular para subir no fly. Botões flutuantes de subir/descer aparecem quando o fly está ligado.\nAuto correr move o personagem para frente sozinho e aumenta a velocidade em 7%.",
+    Text = "Use o botao pular para subir no fly. Botoes flutuantes de subir/descer aparecem quando o fly esta ligado.\nAuto correr move o personagem para frente sozinho (+7%).",
     TextColor3 = getCurrentTheme().muted,
     TextSize = 10,
     TextWrapped = true,
 }, contentConfigs) :: TextLabel
 
 -- Mobile aim button (floating on-screen)
+local function getDefaultAimButtonPosition(): (number, number)
+    local viewport = Workspace.CurrentCamera.ViewportSize
+    local x = viewport.X - CONFIG.MOBILE_AIM_BUTTON_SIZE - CONFIG.MOBILE_PADDING
+    local y = viewport.Y - CONFIG.MOBILE_AIM_BUTTON_SIZE - CONFIG.MOBILE_PADDING - 120
+    return x, y
+end
+
+local initialAimX, initialAimY = getDefaultAimButtonPosition()
+if state.aimButtonPosition == "default" then
+    state.aimButtonX = initialAimX
+    state.aimButtonY = initialAimY
+else
+    local viewport = Workspace.CurrentCamera.ViewportSize
+    local buttonSize = CONFIG.MOBILE_AIM_BUTTON_SIZE
+    state.aimButtonX = math.clamp(state.aimButtonX, CONFIG.MOBILE_PADDING, viewport.X - buttonSize - CONFIG.MOBILE_PADDING)
+    state.aimButtonY = math.clamp(state.aimButtonY, CONFIG.MOBILE_PADDING + 40, viewport.Y - buttonSize - CONFIG.MOBILE_PADDING)
+end
+
 local aimButton = make("TextButton", {
     Name = "MobileAimButton",
     AnchorPoint = Vector2.new(0, 1),
+    Active = true,
     AutoButtonColor = false,
     BackgroundColor3 = getCurrentTheme().panel,
     BorderSizePixel = 0,
     Position = UDim2.new(0, state.aimButtonX, 0, state.aimButtonY),
     Size = UDim2.fromOffset(CONFIG.MOBILE_AIM_BUTTON_SIZE, CONFIG.MOBILE_AIM_BUTTON_SIZE),
-    Text = "MIRA",
+    Text = labels.aim,
     TextColor3 = getAccent(),
-    TextSize = 15,
+    TextSize = 28,
     Font = Enum.Font.GothamBold,
     Visible = false,
 }, gui) :: TextButton
 aimButton.Active = true
-corner(aimButton, 22)
+corner(aimButton, 24)
 local aimButtonStroke = stroke(aimButton, getAccent(), 0.2, 2)
 
 -- Fly control buttons (floating on-screen)
 local flyUpButton = make("TextButton", {
     Name = "FlyUpButton",
     AnchorPoint = Vector2.new(1, 1),
+    Active = true,
     AutoButtonColor = false,
     BackgroundColor3 = getCurrentTheme().panel,
     BorderSizePixel = 0,
-    Position = UDim2.new(1, -24, 1, -180),
+    Position = UDim2.new(1, -24, 1, -188),
     Size = UDim2.fromOffset(CONFIG.MOBILE_FLY_BUTTON_SIZE, CONFIG.MOBILE_FLY_BUTTON_SIZE),
-    Text = "▲",
+    Text = labels.up,
     TextColor3 = getAccent(),
-    TextSize = 22,
+    TextSize = 24,
     Font = Enum.Font.GothamBold,
     Visible = false,
 }, gui) :: TextButton
-corner(flyUpButton, 18)
+corner(flyUpButton, 20)
 local flyUpButtonStroke = stroke(flyUpButton, getAccent(), 0.2, 2)
 
 local flyDownButton = make("TextButton", {
     Name = "FlyDownButton",
     AnchorPoint = Vector2.new(1, 1),
+    Active = true,
     AutoButtonColor = false,
     BackgroundColor3 = getCurrentTheme().panel,
     BorderSizePixel = 0,
-    Position = UDim2.new(1, -24, 1, -104),
+    Position = UDim2.new(1, -24, 1, -108),
     Size = UDim2.fromOffset(CONFIG.MOBILE_FLY_BUTTON_SIZE, CONFIG.MOBILE_FLY_BUTTON_SIZE),
-    Text = "▼",
+    Text = labels.down,
     TextColor3 = getAccent(),
-    TextSize = 22,
+    TextSize = 24,
     Font = Enum.Font.GothamBold,
     Visible = false,
 }, gui) :: TextButton
-corner(flyDownButton, 18)
+corner(flyDownButton, 20)
 local flyDownButtonStroke = stroke(flyDownButton, getAccent(), 0.2, 2)
 
--- FOV Circle visualization (actual circle)
+-- FOV Circle visualization
 local fovCircle = make("Frame", {
     Name = "FOVCircle",
     AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1324,8 +1548,8 @@ local targetIndicator = make("TextLabel", {
     AnchorPoint = Vector2.new(0.5, 0),
     BackgroundTransparency = 1,
     Font = Enum.Font.GothamBold,
-    Position = UDim2.new(0.5, 0, 0.5, 40),
-    Size = UDim2.fromOffset(200, 22),
+    Position = UDim2.new(0.5, 0, 0.5, 44),
+    Size = UDim2.fromOffset(220, 24),
     Text = "",
     TextColor3 = getAccent(),
     TextSize = 13,
@@ -1344,7 +1568,7 @@ local function applyTheme()
     title.TextColor3 = current.text
     subtitle.TextColor3 = current.muted
     closeButton.TextColor3 = current.muted
-    hint.TextColor3 = current.muted
+    espHint.TextColor3 = current.muted
     aimbotHint.TextColor3 = current.muted
     configsHint.TextColor3 = current.muted
 
@@ -1354,16 +1578,24 @@ local function applyTheme()
     flyUpButtonStroke.Color = getAccent()
     flyDownButtonStroke.Color = getAccent()
 
-    aimButton.BackgroundColor3 = current.panel
-    flyUpButton.BackgroundColor3 = current.panel
-    flyDownButton.BackgroundColor3 = current.panel
-
     for _, content in {contentESP, contentAimbot, contentConfigs} do
         for _, child in content:GetChildren() do
-            if child:IsA("TextButton") then
+            if child:IsA("Frame") then
                 child.BackgroundColor3 = current.surface
-                child.TextColor3 = current.text
-            elseif child:IsA("TextLabel") and child ~= hint and child ~= aimbotHint and child ~= configsHint then
+                for _, grandChild in child:GetChildren() do
+                    if grandChild:IsA("TextLabel") then
+                        if grandChild.Name == "Icon" then
+                            grandChild.TextColor3 = getAccent()
+                        elseif grandChild.Name == "Value" then
+                            grandChild.TextColor3 = getAccent()
+                        else
+                            grandChild.TextColor3 = current.text
+                        end
+                    elseif grandChild:IsA("Frame") and grandChild.Name == "SwitchFrame" then
+                        grandChild.BackgroundColor3 = current.border
+                    end
+                end
+            elseif child:IsA("TextLabel") then
                 child.TextColor3 = current.muted
             end
         end
@@ -1375,7 +1607,7 @@ local function applyTheme()
         slider.valueLabel.TextColor3 = getAccent()
         slider.track.BackgroundColor3 = current.border
         slider.fill.BackgroundColor3 = getAccent()
-        slider.knob.BackgroundColor3 = current.text
+        slider.knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     end
 end
 
@@ -1385,18 +1617,23 @@ local function updateAimButtonVisual()
         return
     end
 
+    if state.aimButtonPosition == "default" then
+        local x, y = getDefaultAimButtonPosition()
+        aimButton.Position = UDim2.new(0, x, 0, y)
+    end
+
     aimButton.Visible = state.aimButtonVisible
 
     if state.aimMode == "Hold" then
-        aimButton.Text = aimButtonHeld and "MIRANDO" or "MIRA"
+        aimButton.Text = aimButtonHeld and labels.on or labels.aim
         aimButton.BackgroundColor3 = aimButtonHeld and getAccent() or getCurrentTheme().panel
         aimButton.TextColor3 = aimButtonHeld and Color3.new(0, 0, 0) or getAccent()
     elseif state.aimMode == "Toggle" then
-        aimButton.Text = state.aimActive and "MIRANDO" or "MIRA"
+        aimButton.Text = state.aimActive and labels.on or labels.aim
         aimButton.BackgroundColor3 = state.aimActive and getAccent() or getCurrentTheme().panel
         aimButton.TextColor3 = state.aimActive and Color3.new(0, 0, 0) or getAccent()
     else
-        aimButton.Text = "MIRA"
+        aimButton.Text = labels.aim
         aimButton.BackgroundColor3 = getCurrentTheme().panel
         aimButton.TextColor3 = getAccent()
     end
@@ -1416,44 +1653,42 @@ end
 
 local function refreshUI()
     -- ESP tab
-    espButton.Text = state.enabled and "ESP  •  ligado" or "ESP  •  desligado"
-    teamButton.Text = state.teamCheck and "Team Check  •  ligado" or "Team Check  •  desligado"
-    distanceButton.Text = string.format("Distância máxima  •  %dm", state.maxDistance)
-    healthButton.Text = state.showHealth and "Mostrar vida  •  ligado" or "Mostrar vida  •  desligado"
-    distLabelButton.Text = state.showDistance and "Mostrar distância  •  ligado" or "Mostrar distância  •  desligado"
-    boxesButton.Text = state.showBoxes and "Box ESP  •  ligado" or "Box ESP  •  desligado"
-    skeletonButton.Text = state.showSkeleton and "Skeleton ESP  •  ligado" or "Skeleton ESP  •  desligado"
-    tracersButton.Text = state.showTracers and "Tracers  •  ligado" or "Tracers  •  desligado"
-    themeButton.Text = "Tema  •  " .. state.theme
-    subColorButton.Text = "Sub cor  •  " .. state.subColor
-    fontButton.Text = "Fonte  •  " .. state.font
-    rangeButton.Text = "Alcance rápido  •  50m / 1000m"
+    updateToggle(espToggle, state.enabled)
+    updateToggle(teamToggle, state.teamCheck)
+    updateSlider(maxDistanceSlider, state.maxDistance)
+    updateToggle(healthToggle, state.showHealth)
+    updateToggle(distLabelToggle, state.showDistance)
+    updateToggle(boxesToggle, state.showBoxes)
+    updateToggle(skeletonToggle, state.showSkeleton)
+    updateToggle(tracersToggle, state.showTracers)
+    themeButton:FindFirstChild("Text").Text = "Tema | " .. state.theme
+    subColorButton:FindFirstChild("Text").Text = "Sub cor | " .. state.subColor
+    fontButton:FindFirstChild("Text").Text = "Fonte | " .. state.font
 
     -- Aimbot tab
     local modeLabels = {
         Hold = "Segurar",
         Toggle = "Alternar",
-        Auto = "Automático",
+        Auto = "Automatico",
     }
-    aimbotButton.Text = state.aimEnabled and "Aimbot  •  ligado" or "Aimbot  •  desligado"
-    aimModeButton.Text = "Modo  •  " .. (modeLabels[state.aimMode] or state.aimMode)
-    aimButtonVisibleButton.Text = state.aimButtonVisible and "Botão de mira  •  visível" or "Botão de mira  •  escondido"
-    aimPartButton.Text = "Alvo  •  " .. state.aimTargetPart
-    aimDistanceButton.Text = string.format("Alcance máx.  •  %dm", state.aimMaxDistance)
-    aimFovButton.Text = string.format("FOV  •  %d°", state.aimFov)
-    aimSmoothButton.Text = string.format("Suavização  •  %.2f", state.aimSmooth)
-    aimTeamButton.Text = state.aimTeamCheck and "Ignorar time  •  ligado" or "Ignorar time  •  desligado"
-    aimVisibleButton.Text = state.aimVisibleOnly and "Só visível  •  ligado" or "Só visível  •  desligado"
-    aimResetPositionButton.Text = "Resetar posição do botão"
+    updateToggle(aimbotToggle, state.aimEnabled)
+    aimModeButton:FindFirstChild("Text").Text = "Modo | " .. (modeLabels[state.aimMode] or state.aimMode)
+    updateToggle(aimButtonVisibleToggle, state.aimButtonVisible)
+    aimPartButton:FindFirstChild("Text").Text = "Alvo | " .. state.aimTargetPart
+    updateSlider(aimMaxDistanceSlider, state.aimMaxDistance)
+    updateSlider(aimFovSlider, state.aimFov)
+    updateToggle(aimTeamToggle, state.aimTeamCheck)
+    updateToggle(aimVisibleToggle, state.aimVisibleOnly)
+    aimResetPositionButton:FindFirstChild("Text").Text = "Resetar posicao do botao"
 
     -- Configs tab
-    speedButton.Text = string.format("Velocidade  •  %d", state.walkSpeed)
-    jumpButton.Text = string.format("Pulo  •  %d", state.jumpPower)
-    autoRunButton.Text = state.autoRun and "Auto correr  •  ligado" or "Auto correr  •  desligado"
-    infiniteJumpButton.Text = state.infiniteJump and "Pulo infinito  •  ligado" or "Pulo infinito  •  desligado"
-    flyButton.Text = state.flyEnabled and "Fly  •  ligado" or "Fly  •  desligado"
+    updateSlider(walkSpeedSlider, state.walkSpeed)
+    updateSlider(jumpPowerSlider, state.jumpPower)
+    updateToggle(autoRunToggle, state.autoRun)
+    updateToggle(infiniteJumpToggle, state.infiniteJump)
+    updateToggle(flyToggle, state.flyEnabled)
     updateSlider(flySpeedSlider, state.flySpeed)
-    resetConfigsButton.Text = "Resetar configurações"
+    resetConfigsButton:FindFirstChild("Text").Text = "Resetar configuracoes"
 
     applyTheme()
     updateAimButtonVisual()
@@ -1472,8 +1707,8 @@ local function refreshUI()
     end
 
     contentESP.Visible = state.activeTab == "ESP"
-    contentAimbot.Visible = state.activeTab == "Aimbot"
-    contentConfigs.Visible = state.activeTab == "Configs"
+    contentAimbot.Visible = state.activeTab == "AIM"
+    contentConfigs.Visible = state.activeTab == "CFG"
 end
 
 local function refreshAll()
@@ -1488,96 +1723,212 @@ local function switchTab(tabName: string)
     refreshUI()
 end
 
-espTabButton.Activated:Connect(function()
-    pressFeedback(espTabButton)
-    switchTab("ESP")
-end)
+-- Button connections ------------------------------------------------------
 
-aimbotTabButton.Activated:Connect(function()
-    pressFeedback(aimbotTabButton)
-    switchTab("Aimbot")
-end)
+local function connectButton(button: TextButton, callback: () -> ())
+    button.Active = true
+    local currentInput: InputObject?
 
-configsTabButton.Activated:Connect(function()
-    pressFeedback(configsTabButton)
-    switchTab("Configs")
-end)
+    button.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
 
--- ESP button connections
-local function connectOptionButton(button: TextButton, callback: () -> ())
-    button.Activated:Connect(function()
-        pressFeedback(button)
-        callback()
+        currentInput = input
+        local startPos = input.Position
+
+        local conn: RBXScriptConnection?
+        conn = input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                currentInput = nil
+                if conn then
+                    conn:Disconnect()
+                end
+                local dragDelta = (input.Position - startPos).Magnitude
+                if dragDelta < 24 then
+                    pressFeedback(button)
+                    hapticFeedback()
+                    callback()
+                end
+            end
+        end)
     end)
 end
 
-connectOptionButton(espButton, function()
-    state.enabled = not state.enabled
+connectButton(espTabButton, function()
+    switchTab("ESP")
+end)
+
+connectButton(aimbotTabButton, function()
+    switchTab("AIM")
+end)
+
+connectButton(configsTabButton, function()
+    switchTab("CFG")
+end)
+
+-- Draggable toggle switch
+local function setupToggle(toggle, stateKey, onChange)
+    local currentInput: InputObject?
+    local startX: number
+    local knobStartX: number
+    local dragging = false
+
+    toggle.button.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+
+        currentInput = input
+        startX = input.Position.X
+        knobStartX = toggle.knob.AbsolutePosition.X
+        dragging = false
+
+        local conn: RBXScriptConnection?
+        conn = input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                currentInput = nil
+                if conn then
+                    conn:Disconnect()
+                end
+
+                if dragging then
+                    local frameAbs = toggle.status.AbsolutePosition
+                    local frameSize = toggle.status.AbsoluteSize
+                    local knobCenter = toggle.knob.AbsolutePosition.X + toggle.knob.AbsoluteSize.X / 2
+                    local mid = frameAbs.X + frameSize.X / 2
+                    local desired = knobCenter > mid
+                    if desired ~= state[stateKey] then
+                        state[stateKey] = desired
+                        onChange()
+                    else
+                        refreshUI()
+                    end
+                else
+                    state[stateKey] = not state[stateKey]
+                    onChange()
+                end
+            end
+        end)
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input ~= currentInput then
+            return
+        end
+
+        local delta = input.Position.X - startX
+        if math.abs(delta) > 5 then
+            dragging = true
+        end
+
+        if dragging then
+            local frameAbs = toggle.status.AbsolutePosition
+            local frameSize = toggle.status.AbsoluteSize
+            local knobSize = toggle.knob.AbsoluteSize.X
+            local minX = frameAbs.X + 2
+            local maxX = frameAbs.X + frameSize.X - knobSize - 2
+            local newX = math.clamp(knobStartX + delta, minX, maxX)
+            toggle.knob.Position = UDim2.new(0, newX - frameAbs.X, 0.5, 0)
+
+            local pct = (newX - minX) / (maxX - minX)
+            local isOn = pct > 0.5
+            toggle.status.BackgroundColor3 = isOn and getAccent() or getCurrentTheme().off
+        end
+    end)
+end
+
+setupToggle(espToggle, "enabled", function()
     saveState()
     refreshUI()
     refreshAll()
 end)
 
-connectOptionButton(teamButton, function()
-    state.teamCheck = not state.teamCheck
+setupToggle(teamToggle, "teamCheck", function()
     saveState()
     refreshUI()
     refreshAll()
 end)
 
-connectOptionButton(distanceButton, function()
-    if state.maxDistance >= CONFIG.MAX_DISTANCE then
-        state.maxDistance = 100
-    else
-        state.maxDistance = math.min(state.maxDistance + 100, CONFIG.MAX_DISTANCE)
+setupToggle(healthToggle, "showHealth", function()
+    saveState()
+    refreshUI()
+    refreshAll()
+end)
+
+setupToggle(distLabelToggle, "showDistance", function()
+    saveState()
+    refreshUI()
+    refreshAll()
+end)
+
+setupToggle(boxesToggle, "showBoxes", function()
+    saveState()
+    refreshUI()
+    refreshAll()
+end)
+
+setupToggle(skeletonToggle, "showSkeleton", function()
+    saveState()
+    refreshUI()
+    refreshAll()
+end)
+
+setupToggle(tracersToggle, "showTracers", function()
+    saveState()
+    refreshUI()
+    refreshAll()
+end)
+
+setupToggle(aimbotToggle, "aimEnabled", function()
+    if not state.aimEnabled then
+        state.aimActive = false
+        aimButtonHeld = false
     end
     saveState()
     refreshUI()
-    refreshAll()
 end)
 
-connectOptionButton(healthButton, function()
-    state.showHealth = not state.showHealth
+setupToggle(aimButtonVisibleToggle, "aimButtonVisible", function()
     saveState()
     refreshUI()
-    refreshAll()
 end)
 
-connectOptionButton(distLabelButton, function()
-    state.showDistance = not state.showDistance
+setupToggle(aimTeamToggle, "aimTeamCheck", function()
     saveState()
     refreshUI()
-    refreshAll()
 end)
 
-connectOptionButton(boxesButton, function()
-    state.showBoxes = not state.showBoxes
+setupToggle(aimVisibleToggle, "aimVisibleOnly", function()
     saveState()
     refreshUI()
-    refreshAll()
 end)
 
-connectOptionButton(skeletonButton, function()
-    state.showSkeleton = not state.showSkeleton
+setupToggle(autoRunToggle, "autoRun", function()
     saveState()
     refreshUI()
-    refreshAll()
+    applyCharacterStats()
 end)
 
-connectOptionButton(tracersButton, function()
-    state.showTracers = not state.showTracers
+setupToggle(infiniteJumpToggle, "infiniteJump", function()
     saveState()
     refreshUI()
-    refreshAll()
 end)
 
-connectOptionButton(themeButton, function()
+setupToggle(flyToggle, "flyEnabled", function()
+    toggleFly(state.flyEnabled)
+    refreshUI()
+end)
+
+connectButton(themeButton, function()
     state.theme = state.theme == "Dark" and "Light" or "Dark"
     saveState()
     refreshUI()
 end)
 
-connectOptionButton(subColorButton, function()
+connectButton(subColorButton, function()
     local keys = {}
     for key in subColors do
         table.insert(keys, key)
@@ -1590,7 +1941,7 @@ connectOptionButton(subColorButton, function()
     refreshAll()
 end)
 
-connectOptionButton(fontButton, function()
+connectButton(fontButton, function()
     local keys = {}
     for key in fontOptions do
         table.insert(keys, key)
@@ -1603,25 +1954,7 @@ connectOptionButton(fontButton, function()
     refreshAll()
 end)
 
-connectOptionButton(rangeButton, function()
-    state.maxDistance = state.maxDistance >= CONFIG.MAX_DISTANCE and 50 or CONFIG.MAX_DISTANCE
-    saveState()
-    refreshUI()
-    refreshAll()
-end)
-
--- Aimbot button connections
-connectOptionButton(aimbotButton, function()
-    state.aimEnabled = not state.aimEnabled
-    if not state.aimEnabled then
-        state.aimActive = false
-        aimButtonHeld = false
-    end
-    saveState()
-    refreshUI()
-end)
-
-connectOptionButton(aimModeButton, function()
+connectButton(aimModeButton, function()
     local modes = {"Hold", "Toggle", "Auto"}
     local currentIndex = table.find(modes, state.aimMode) or 1
     state.aimMode = modes[currentIndex % #modes + 1]
@@ -1631,13 +1964,7 @@ connectOptionButton(aimModeButton, function()
     refreshUI()
 end)
 
-connectOptionButton(aimButtonVisibleButton, function()
-    state.aimButtonVisible = not state.aimButtonVisible
-    saveState()
-    refreshUI()
-end)
-
-connectOptionButton(aimPartButton, function()
+connectButton(aimPartButton, function()
     local parts = {"Head", "Torso", "HumanoidRootPart"}
     local currentIndex = table.find(parts, state.aimTargetPart) or 1
     state.aimTargetPart = parts[currentIndex % #parts + 1]
@@ -1646,97 +1973,31 @@ connectOptionButton(aimPartButton, function()
     updateAimbotTarget()
 end)
 
-connectOptionButton(aimDistanceButton, function()
-    if state.aimMaxDistance >= 1000 then
-        state.aimMaxDistance = 100
-    else
-        state.aimMaxDistance = math.min(state.aimMaxDistance + 100, 1000)
-    end
-    saveState()
-    refreshUI()
-end)
-
-connectOptionButton(aimFovButton, function()
-    if state.aimFov >= 360 then
-        state.aimFov = 30
-    else
-        state.aimFov = math.min(state.aimFov + 30, 360)
-    end
-    saveState()
-    refreshUI()
-end)
-
-connectOptionButton(aimSmoothButton, function()
-    local step = 0.05
-    if state.aimSmooth >= CONFIG.AIM_SMOOTH_MAX - 0.01 then
-        state.aimSmooth = CONFIG.AIM_SMOOTH_MIN
-    else
-        state.aimSmooth = math.min(state.aimSmooth + step, CONFIG.AIM_SMOOTH_MAX)
-    end
-    saveState()
-    refreshUI()
-end)
-
-connectOptionButton(aimTeamButton, function()
-    state.aimTeamCheck = not state.aimTeamCheck
-    saveState()
-    refreshUI()
-end)
-
-connectOptionButton(aimVisibleButton, function()
-    state.aimVisibleOnly = not state.aimVisibleOnly
-    saveState()
-    refreshUI()
-end)
-
-connectOptionButton(aimResetPositionButton, function()
+connectButton(aimResetPositionButton, function()
     state.aimButtonPosition = "default"
-    state.aimButtonX = CONFIG.MOBILE_AIM_BUTTON_DEFAULT_X
-    state.aimButtonY = CONFIG.MOBILE_AIM_BUTTON_DEFAULT_Y
+    local x, y = getDefaultAimButtonPosition()
+    state.aimButtonX = x
+    state.aimButtonY = y
     saveState()
     refreshUI()
 end)
 
--- Configs button connections
-connectOptionButton(speedButton, function()
-    local speeds = {1, 16, 25, 50, 100}
-    local currentIndex = table.find(speeds, state.walkSpeed) or 1
-    state.walkSpeed = speeds[currentIndex % #speeds + 1]
-    saveState()
-    refreshUI()
-    applyCharacterStats()
-end)
-
-connectOptionButton(jumpButton, function()
-    local jumps = {40, 100, 200, 400, 800}
-    local currentIndex = table.find(jumps, state.jumpPower) or 1
-    state.jumpPower = jumps[currentIndex % #jumps + 1]
+connectButton(resetConfigsButton, function()
+    state.walkSpeed = CONFIG.DEFAULT_WALK_SPEED
+    state.jumpPower = CONFIG.DEFAULT_JUMP_POWER
+    state.autoRun = false
+    state.infiniteJump = false
+    toggleFly(false)
+    state.flySpeed = 50
     saveState()
     refreshUI()
     applyCharacterStats()
 end)
 
-connectOptionButton(autoRunButton, function()
-    state.autoRun = not state.autoRun
-    saveState()
-    refreshUI()
-    applyCharacterStats()
-end)
-
-connectOptionButton(infiniteJumpButton, function()
-    state.infiniteJump = not state.infiniteJump
-    saveState()
-    refreshUI()
-end)
-
-connectOptionButton(flyButton, function()
-    local newState = not state.flyEnabled
-    toggleFly(newState)
-    refreshUI()
-end)
-
+-- Slider interaction
 local function setupSliderInteraction(slider, callback: (number) -> ())
     local currentInput: InputObject?
+    local dragging = false
 
     local function updateFromInput(input: InputObject)
         local value = getSliderValueFromInput(slider, input.Position.X)
@@ -1751,41 +2012,54 @@ local function setupSliderInteraction(slider, callback: (number) -> ())
         end
 
         currentInput = input
+        dragging = true
         updateFromInput(input)
 
         local conn: RBXScriptConnection?
         conn = input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
                 currentInput = nil
+                dragging = false
                 if conn then
                     conn:Disconnect()
                 end
+                saveState()
             end
         end)
     end)
 
     UserInputService.InputChanged:Connect(function(input)
-        if input == currentInput then
+        if input == currentInput and dragging then
             updateFromInput(input)
         end
     end)
 end
 
-setupSliderInteraction(flySpeedSlider, function(value: number)
-    state.flySpeed = value
-    saveState()
+setupSliderInteraction(maxDistanceSlider, function(value: number)
+    state.maxDistance = value
+    refreshAll()
 end)
 
-connectOptionButton(resetConfigsButton, function()
-    state.walkSpeed = CONFIG.DEFAULT_WALK_SPEED
-    state.jumpPower = CONFIG.DEFAULT_JUMP_POWER
-    state.autoRun = false
-    state.infiniteJump = false
-    toggleFly(false)
-    state.flySpeed = 50
-    saveState()
-    refreshUI()
+setupSliderInteraction(aimMaxDistanceSlider, function(value: number)
+    state.aimMaxDistance = value
+end)
+
+setupSliderInteraction(aimFovSlider, function(value: number)
+    state.aimFov = value
+end)
+
+setupSliderInteraction(walkSpeedSlider, function(value: number)
+    state.walkSpeed = value
     applyCharacterStats()
+end)
+
+setupSliderInteraction(jumpPowerSlider, function(value: number)
+    state.jumpPower = value
+    applyCharacterStats()
+end)
+
+setupSliderInteraction(flySpeedSlider, function(value: number)
+    state.flySpeed = value
 end)
 
 -- Mobile aim button interactions
@@ -1821,7 +2095,7 @@ aimButton.InputBegan:Connect(function(input)
             end
 
             local dragDelta = (input.Position - aimDragStart).Magnitude
-            local wasTap = dragDelta < 16 and not aimButtonDragging
+            local wasTap = dragDelta < 24 and not aimButtonDragging
 
             if state.aimMode == "Hold" then
                 aimButtonHeld = false
@@ -1843,13 +2117,15 @@ UserInputService.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement
         or input.UserInputType == Enum.UserInputType.Touch then
         local dragDelta = (input.Position - aimDragStart).Magnitude
-        if dragDelta > 16 then
+        if dragDelta > 24 then
             aimButtonDragging = true
             if state.aimMode == "Hold" then
                 aimButtonHeld = false
             end
-            local newX = math.clamp(aimButtonStart.X.Offset + (input.Position.X - aimDragStart.X), 0, math.huge)
-            local newY = math.clamp(aimButtonStart.Y.Offset + (input.Position.Y - aimDragStart.Y), 0, math.huge)
+            local viewport = Workspace.CurrentCamera.ViewportSize
+            local buttonSize = CONFIG.MOBILE_AIM_BUTTON_SIZE
+            local newX = math.clamp(aimButtonStart.X.Offset + (input.Position.X - aimDragStart.X), CONFIG.MOBILE_PADDING, viewport.X - buttonSize - CONFIG.MOBILE_PADDING)
+            local newY = math.clamp(aimButtonStart.Y.Offset + (input.Position.Y - aimDragStart.Y), CONFIG.MOBILE_PADDING + 40, viewport.Y - buttonSize - CONFIG.MOBILE_PADDING)
             aimButton.Position = UDim2.new(0, newX, 0, newY)
             state.aimButtonPosition = "custom"
             state.aimButtonX = newX
@@ -1884,30 +2160,67 @@ local function setupFlyHoldButton(button: TextButton, flagName: string)
             end
         end)
     end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if input == currentInput then
-            -- track movement if needed
-        end
-    end)
 end
 
 setupFlyHoldButton(flyUpButton, "flyUp")
 setupFlyHoldButton(flyDownButton, "flyDown")
 
-local function setPanelVisible(visible: boolean)
-    state.panelOpen = visible
-    panel.Visible = visible
-    saveState()
+local function fitPanelToViewport()
+    local viewport = Workspace.CurrentCamera.ViewportSize
+    local width = math.min(320, viewport.X - 2 * CONFIG.MOBILE_PADDING)
+    local height = math.min(560, viewport.Y - 120)
+    panel.Size = UDim2.fromOffset(width, height)
 end
 
-toggleButton.Activated:Connect(function()
-    pressFeedback(toggleButton)
+local function setPanelVisible(visible: boolean)
+    state.panelOpen = visible
+    saveState()
+
+    if visible then
+        fitPanelToViewport()
+        local targetSize = panel.Size
+        panel.Visible = true
+        panel.BackgroundTransparency = 1
+        panel.Size = UDim2.fromOffset(0, 0)
+        local tween = TweenService:Create(panel, TweenInfo.new(CONFIG.FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundTransparency = 0,
+            Size = targetSize,
+        })
+        tween:Play()
+    else
+        fitPanelToViewport()
+        local tween = TweenService:Create(panel, TweenInfo.new(CONFIG.FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            BackgroundTransparency = 1,
+            Size = UDim2.fromOffset(0, 0),
+        })
+        tween:Play()
+        tween.Completed:Connect(function()
+            panel.Visible = false
+        end)
+    end
+end
+
+Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+    fitPanelToViewport()
+    if panel.Visible then
+        local panelSize = panel.AbsoluteSize
+        local viewport = Workspace.CurrentCamera.ViewportSize
+        panel.Position = UDim2.new(
+            panel.Position.X.Scale,
+            math.clamp(panel.Position.X.Offset, panelSize.X - viewport.X + CONFIG.MOBILE_PADDING, viewport.X - CONFIG.MOBILE_PADDING),
+            panel.Position.Y.Scale,
+            math.clamp(panel.Position.Y.Offset, 0, viewport.Y - panelSize.Y - CONFIG.MOBILE_PADDING)
+        )
+    end
+end)
+
+fitPanelToViewport()
+
+connectButton(toggleButton, function()
     setPanelVisible(not panel.Visible)
 end)
 
-closeButton.Activated:Connect(function()
-    pressFeedback(closeButton)
+connectButton(closeButton, function()
     setPanelVisible(false)
 end)
 
@@ -1950,11 +2263,15 @@ UserInputService.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement
         or input.UserInputType == Enum.UserInputType.Touch then
         local delta = input.Position - dragStart
+        local viewport = Workspace.CurrentCamera.ViewportSize
+        local panelSize = panel.AbsoluteSize
+        local newX = math.clamp(panelStart.X.Offset + delta.X, panelSize.X - viewport.X + CONFIG.MOBILE_PADDING, viewport.X - CONFIG.MOBILE_PADDING)
+        local newY = math.clamp(panelStart.Y.Offset + delta.Y, 0, viewport.Y - panelSize.Y - CONFIG.MOBILE_PADDING)
         panel.Position = UDim2.new(
             panelStart.X.Scale,
-            panelStart.X.Offset + delta.X,
+            newX,
             panelStart.Y.Scale,
-            panelStart.Y.Offset + delta.Y
+            newY
         )
     end
 end)
@@ -1964,13 +2281,13 @@ end)
 refreshUI()
 
 local elapsedUpdate = 0
-local elapsedAimbot = 0
 local lastAimButtonSave = 0
+local statsReapplyTimer = 0
 
 RunService.Heartbeat:Connect(function(deltaTime)
     elapsedUpdate += deltaTime
-    elapsedAimbot += deltaTime
     lastAimButtonSave += deltaTime
+    statsReapplyTimer += deltaTime
 
     if state.enabled then
         if elapsedUpdate >= CONFIG.UPDATE_INTERVAL then
@@ -1995,17 +2312,14 @@ RunService.Heartbeat:Connect(function(deltaTime)
             saveState()
         end
 
-        if elapsedAimbot >= CONFIG.AIM_INTERVAL then
-            elapsedAimbot = 0
-            updateAimbotTarget()
+        updateAimbotTarget()
 
-            if isAimActivated() and aimbotTargetPart then
-                aimAt(aimbotTargetPart)
-                targetIndicator.Text = aimbotTarget and "Mirando: " .. aimbotTarget.DisplayName or ""
-                targetIndicator.Visible = true
-            else
-                targetIndicator.Visible = false
-            end
+        if isAimActivated() and aimbotTargetPart then
+            aimAt(aimbotTargetPart)
+            targetIndicator.Text = aimbotTarget and "Mirando: " .. aimbotTarget.DisplayName or ""
+            targetIndicator.Visible = true
+        else
+            targetIndicator.Visible = false
         end
     else
         fovCircle.Visible = false
@@ -2025,7 +2339,8 @@ RunService.Heartbeat:Connect(function(deltaTime)
     end
 
     -- Re-apply character stats periodically in case the game resets them
-    if tick() % 1 < 0.05 then
+    if statsReapplyTimer >= 0.1 then
+        statsReapplyTimer = 0
         applyCharacterStats()
     end
 end)
