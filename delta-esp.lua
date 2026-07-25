@@ -1,6 +1,6 @@
 --[[
-    Ember's Cheats — Mobile-First
-    LocalScript → StarterPlayer > StarterPlayerScripts
+    Ember's Cheats — Clean Version
+    Mobile-First | Hard Lock Aimbot + ESP + Auto Run
 ]]
 
 local Players = game:GetService("Players")
@@ -14,101 +14,40 @@ local PlayerGui = LP:WaitForChild("PlayerGui")
 local Camera = Workspace.CurrentCamera
 
 -- ====================== CONFIG ======================
-local CFG = {
-	UpdateRate = 0.07,
-	MaxDistance = 2000,
-	AimSize = 76,
-	FlySize = 60,
-	ButtonH = 50,
-}
-
-local Theme = {
-	Dark = {
-		bg = Color3.fromRGB(13, 16, 24),
-		panel = Color3.fromRGB(20, 25, 36),
-		card = Color3.fromRGB(28, 35, 50),
-		text = Color3.fromRGB(240, 245, 255),
-		muted = Color3.fromRGB(140, 160, 185),
-		border = Color3.fromRGB(55, 70, 95),
-		accent = Color3.fromRGB(70, 220, 230),
-	},
-	Light = {
-		bg = Color3.fromRGB(245, 248, 252),
-		panel = Color3.fromRGB(230, 238, 248),
-		card = Color3.fromRGB(215, 225, 240),
-		text = Color3.fromRGB(20, 30, 45),
-		muted = Color3.fromRGB(80, 100, 125),
-		border = Color3.fromRGB(160, 180, 205),
-		accent = Color3.fromRGB(0, 160, 175),
-	},
-}
-
-local Colors = {
-	Ciano = Color3.fromRGB(70, 225, 230),
-	Vermelho = Color3.fromRGB(255, 80, 100),
-	Rosa = Color3.fromRGB(255, 120, 190),
-	Verde = Color3.fromRGB(80, 255, 140),
-	Amarelo = Color3.fromRGB(255, 220, 70),
-}
+local FOV_RADIUS = 90          -- FOV do aimbot em pixels (aprox 90°)
+local AIM_MAX_DIST = 800
+local ESP_MAX_DIST = 1200
+local AUTO_RUN_BOOST = 1.05    -- +5%
 
 -- ====================== STATE ======================
 local S = {
-	ESP = true,
-	TeamCheck = false,
-	Theme = "Dark",
-	Color = "Ciano",
-	MaxDist = 1000,
-	ShowHP = true,
-	ShowDist = true,
-	Boxes = false,
-	Skeleton = false,
-	Tracers = false,
-
 	Aim = false,
-	AimMode = "Auto",
-	AimActive = false,
-	AimPart = "Head",
-	AimDist = 600,
-	AimFOV = 160,
-	AimTeam = true,
-	AimVisible = true,
-	AimButton = true,
-
-	Speed = 16,
-	Jump = 50,
-	Fly = false,
-	FlySpeed = 55,
-	FlyUp = false,
-	FlyDown = false,
+	ESP = true,
+	TeamCheck = true,
 	AutoRun = false,
-	InfJump = false,
-
 	Panel = true,
-	Tab = "ESP",
 }
 
 -- ====================== UTILS ======================
 local function make(class, props, parent)
-	local o = Instance.new(class)
-	for k, v in pairs(props) do o[k] = v end
-	if parent then o.Parent = parent end
-	return o
+	local obj = Instance.new(class)
+	for k, v in pairs(props) do
+		obj[k] = v
+	end
+	if parent then obj.Parent = parent end
+	return obj
 end
 
-local function corner(o, r)
-	return make("UICorner", {CornerRadius = UDim.new(0, r)}, o)
+local function corner(obj, r)
+	return make("UICorner", {CornerRadius = UDim.new(0, r)}, obj)
 end
 
-local function stroke(o, c, t, th)
-	return make("UIStroke", {Color = c, Transparency = t or 0, Thickness = th or 1}, o)
-end
-
-local function accent()
-	return Colors[S.Color]
-end
-
-local function theme()
-	return Theme[S.Theme]
+local function stroke(obj, color, transparency)
+	return make("UIStroke", {
+		Color = color,
+		Transparency = transparency or 0.3,
+		Thickness = 1.2,
+	}, obj)
 end
 
 local function getRoot(char)
@@ -119,127 +58,63 @@ local function getHum(char)
 	return char and char:FindFirstChildOfClass("Humanoid")
 end
 
-local function isAlive(p)
-	local hum = getHum(p.Character)
+local function isAlive(player)
+	local hum = getHum(player.Character)
 	return hum and hum.Health > 0
 end
 
-local function sameTeam(p)
-	return LP.Team and p.Team == LP.Team
+local function sameTeam(player)
+	return LP.Team and player.Team == LP.Team
 end
 
 -- ====================== CHARACTER ======================
-local flyBV, flyConn
-
-local function applyStats()
+local function applySpeed()
 	local hum = getHum(LP.Character)
 	if not hum then return end
-	local spd = S.Speed
-	if S.AutoRun then spd = math.min(spd * 1.08, 100) end
-	hum.WalkSpeed = spd
-	hum.JumpPower = S.Jump
+	local base = 16
+	hum.WalkSpeed = S.AutoRun and (base * AUTO_RUN_BOOST) or base
 end
-
-local function disableFly()
-	S.Fly = false
-	S.FlyUp = false
-	S.FlyDown = false
-	if flyConn then flyConn:Disconnect() flyConn = nil end
-	if flyBV then flyBV:Destroy() flyBV = nil end
-	local hum = getHum(LP.Character)
-	if hum then
-		hum.PlatformStand = false
-		hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-	end
-end
-
-local function enableFly()
-	disableFly()
-	local root = getRoot(LP.Character)
-	local hum = getHum(LP.Character)
-	if not root or not hum then return end
-
-	S.Fly = true
-	hum.PlatformStand = true
-	flyBV = make("BodyVelocity", {
-		MaxForce = Vector3.new(1e9, 1e9, 1e9),
-		Velocity = Vector3.zero,
-	}, root)
-
-	flyConn = RunService.Heartbeat:Connect(function()
-		if not S.Fly then return disableFly() end
-		local root = getRoot(LP.Character)
-		local hum = getHum(LP.Character)
-		if not root or not hum then return disableFly() end
-
-		local cam = Workspace.CurrentCamera
-		local move = hum.MoveDirection
-		local vel = Vector3.zero
-		if move.Magnitude > 0 then
-			vel = (cam.CFrame.LookVector * move.Z + cam.CFrame.RightVector * move.X) * S.FlySpeed
-		end
-		if S.FlyUp then vel += Vector3.yAxis * S.FlySpeed end
-		if S.FlyDown then vel -= Vector3.yAxis * S.FlySpeed end
-		if flyBV and flyBV.Parent then flyBV.Velocity = vel end
-	end)
-end
-
-UserInputService.JumpRequest:Connect(function()
-	if not S.InfJump then return end
-	local hum = getHum(LP.Character)
-	if hum and hum.FloorMaterial == Enum.Material.Air then
-		hum:ChangeState(Enum.HumanoidStateType.Jumping)
-	end
-end)
 
 LP.CharacterAdded:Connect(function()
-	task.defer(function()
-		applyStats()
-		if S.Fly then enableFly() end
-	end)
+	task.wait(0.3)
+	applySpeed()
 end)
 
 -- ====================== ESP ======================
 local ESPFolder = make("Folder", {Name = "EmberESP"}, Workspace)
-local UIESP = make("Folder", {Name = "EmberUIESP"})
 local ESPData = {}
 
-local Joints = {
-	{"Head","UpperTorso"},{"UpperTorso","LowerTorso"},
-	{"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},
-	{"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"RightLowerArm","RightHand"},
-	{"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LeftLowerLeg","LeftFoot"},
-	{"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"},
-}
-
-local function clearESP(p)
-	local d = ESPData[p]
-	if d then
-		if d.folder then d.folder:Destroy() end
-		if d.ui then d.ui:Destroy() end
-		ESPData[p] = nil
+local function clearESP(player)
+	local data = ESPData[player]
+	if data then
+		if data.folder then data.folder:Destroy() end
+		ESPData[player] = nil
 	end
 end
 
-local function createESP(p, char)
-	clearESP(p)
-	local root = getRoot(char)
+local function createESP(player, character)
+	clearESP(player)
+
+	local root = getRoot(character)
 	if not root then return end
 
-	local folder = make("Folder", {Name = tostring(p.UserId)}, ESPFolder)
-	local hl = make("Highlight", {
-		Adornee = char,
+	local folder = make("Folder", {Name = tostring(player.UserId)}, ESPFolder)
+
+	local highlight = make("Highlight", {
+		Adornee = character,
 		DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
-		FillTransparency = 0.75,
-		OutlineTransparency = 0.1,
+		FillTransparency = 0.72,
+		OutlineTransparency = 0.15,
+		FillColor = Color3.fromRGB(80, 220, 255),
+		OutlineColor = Color3.fromRGB(80, 220, 255),
 	}, folder)
 
-	local bill = make("BillboardGui", {
+	local billboard = make("BillboardGui", {
 		Adornee = root,
 		AlwaysOnTop = true,
-		Size = UDim2.fromOffset(240, 52),
-		StudsOffset = Vector3.new(0, 3.5, 0),
-		MaxDistance = CFG.MaxDistance,
+		Size = UDim2.fromOffset(200, 40),
+		StudsOffset = Vector3.new(0, 3.2, 0),
+		MaxDistance = ESP_MAX_DIST,
 	}, folder)
 
 	local label = make("TextLabel", {
@@ -248,195 +123,135 @@ local function createESP(p, char)
 		Font = Enum.Font.GothamBold,
 		TextSize = 13,
 		TextStrokeTransparency = 0.4,
-		Text = p.DisplayName,
-	}, bill)
+		TextColor3 = Color3.new(1, 1, 1),
+		Text = player.DisplayName,
+	}, billboard)
 
-	local ui = make("Folder", {Name = tostring(p.UserId)}, UIESP)
-	local lines = {}
-	for _, pair in ipairs(Joints) do
-		local line = make("Frame", {
-			BackgroundColor3 = accent(),
-			BorderSizePixel = 0,
-			Size = UDim2.fromOffset(2, 2),
-			Visible = false,
-		}, ui)
-		table.insert(lines, {line = line, a = pair[1], b = pair[2]})
-	end
-
-	local tracer = make("Frame", {
-		AnchorPoint = Vector2.new(0.5, 1),
-		BackgroundColor3 = accent(),
-		BackgroundTransparency = 0.3,
-		BorderSizePixel = 0,
-		Size = UDim2.new(0, 2, 0, 60),
-		Visible = false,
-	}, ui)
-
-	ESPData[p] = {
+	ESPData[player] = {
 		folder = folder,
-		hl = hl,
-		bill = bill,
+		highlight = highlight,
+		billboard = billboard,
 		label = label,
-		ui = ui,
-		lines = lines,
-		tracer = tracer,
 	}
 end
 
-local function updateESP(p)
-	if p == LP then return end
-	local d = ESPData[p]
-	if not d or not p.Character then return end
+local function updateESP(player)
+	if player == LP then return end
+	local data = ESPData[player]
+	if not data or not player.Character then return end
 
-	local root = getRoot(p.Character)
-	local own = getRoot(LP.Character)
-	local hum = getHum(p.Character)
-	if not root or not own or not hum or hum.Health <= 0 then
-		clearESP(p)
+	local root = getRoot(player.Character)
+	local ownRoot = getRoot(LP.Character)
+	local hum = getHum(player.Character)
+
+	if not root or not ownRoot or not hum or hum.Health <= 0 then
+		clearESP(player)
 		return
 	end
 
-	local dist = (own.Position - root.Position).Magnitude
-	local okTeam = not S.TeamCheck or not sameTeam(p)
-	local within = dist <= S.MaxDist
+	local dist = (ownRoot.Position - root.Position).Magnitude
+	local within = dist <= ESP_MAX_DIST
+	local teamOk = not S.TeamCheck or not sameTeam(player)
+	local enabled = S.ESP and within and teamOk
 
+	-- Visibility check
 	local visible = true
 	if within then
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
-		params.FilterDescendantsInstances = {LP.Character, p.Character}
-		local hit = Workspace:Raycast(own.Position, root.Position - own.Position, params)
+		params.FilterDescendantsInstances = {LP.Character, player.Character}
+		local hit = Workspace:Raycast(ownRoot.Position, root.Position - ownRoot.Position, params)
 		if hit then visible = false end
 	end
 
-	local enabled = S.ESP and within and okTeam
-	local col = visible and Colors.Amarelo or Colors.Vermelho
+	local color = visible and Color3.fromRGB(80, 220, 255) or Color3.fromRGB(255, 90, 110)
 
-	d.hl.Enabled = enabled
-	d.hl.FillColor = col
-	d.hl.OutlineColor = col
-	d.bill.Enabled = enabled
+	data.highlight.Enabled = enabled
+	data.highlight.FillColor = color
+	data.highlight.OutlineColor = color
+	data.billboard.Enabled = enabled
 
-	local parts = {p.DisplayName}
-	if S.ShowDist then table.insert(parts, math.floor(dist) .. "m") end
-	if S.ShowHP then table.insert(parts, math.floor(hum.Health) .. " HP") end
-	d.label.Text = table.concat(parts, "  •  ")
-	d.label.TextColor3 = S.Theme == "Light" and Color3.fromRGB(20, 28, 40) or Color3.new(1, 1, 1)
-
-	d.tracer.Visible = enabled and S.Tracers
-	if d.tracer.Visible then
-		local sp, on = Camera:WorldToViewportPoint(root.Position)
-		if on then
-			local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-			local delta = Vector2.new(sp.X, sp.Y) - center
-			d.tracer.Size = UDim2.new(0, 2, 0, delta.Magnitude)
-			d.tracer.Rotation = math.deg(math.atan2(delta.Y, delta.X)) + 90
-			d.tracer.Position = UDim2.fromOffset(center.X, center.Y)
-			d.tracer.BackgroundColor3 = col
-		else
-			d.tracer.Visible = false
-		end
-	end
-
-	for _, item in ipairs(d.lines) do item.line.Visible = false end
-	if enabled and S.Skeleton then
-		for _, item in ipairs(d.lines) do
-			local a = p.Character:FindFirstChild(item.a)
-			local b = p.Character:FindFirstChild(item.b)
-			if a and b and a:IsA("BasePart") and b:IsA("BasePart") then
-				local pa, ona = Camera:WorldToViewportPoint(a.Position)
-				local pb, onb = Camera:WorldToViewportPoint(b.Position)
-				if ona and onb then
-					local delta = Vector2.new(pb.X - pa.X, pb.Y - pa.Y)
-					item.line.Size = UDim2.new(0, delta.Magnitude, 0, 2)
-					item.line.Position = UDim2.fromOffset(pa.X, pa.Y)
-					item.line.Rotation = math.deg(math.atan2(delta.Y, delta.X))
-					item.line.Visible = true
-					item.line.BackgroundColor3 = col
-				end
-			end
-		end
-	end
+	data.label.Text = string.format("%s  •  %dm", player.DisplayName, math.floor(dist))
 end
 
-local function setupPlayer(p)
-	if p == LP then return end
-	local function onChar(char)
+local function setupPlayer(player)
+	if player == LP then return end
+
+	local function onCharacter(char)
 		task.defer(function()
 			local hum = getHum(char)
 			if hum then
-				hum.Died:Connect(function() clearESP(p) end)
+				hum.Died:Connect(function()
+					clearESP(player)
+				end)
 			end
-			createESP(p, char)
+			createESP(player, char)
 		end)
 	end
-	p.CharacterAdded:Connect(onChar)
-	if p.Character then onChar(p.Character) end
+
+	player.CharacterAdded:Connect(onCharacter)
+	if player.Character then
+		onCharacter(player.Character)
+	end
 end
 
-for _, p in ipairs(Players:GetPlayers()) do setupPlayer(p) end
+for _, p in ipairs(Players:GetPlayers()) do
+	setupPlayer(p)
+end
 Players.PlayerAdded:Connect(setupPlayer)
 Players.PlayerRemoving:Connect(clearESP)
 
 -- ====================== AIMBOT (HARD LOCK) ======================
-local aimTarget, aimPart
-local aimHeld = false
+local currentTarget = nil
 
-local function getAimPart(char)
-	local part = char:FindFirstChild(S.AimPart)
-	if part and part:IsA("BasePart") then return part end
-	if S.AimPart == "Torso" then
-		return char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
-	end
-	return getRoot(char)
-end
+local function isVisibleToCamera(part)
+	local ownRoot = getRoot(LP.Character)
+	if not ownRoot then return false end
 
-local function isVisible(part)
-	local own = getRoot(LP.Character)
-	if not own then return false end
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = {LP.Character}
-	local hit = Workspace:Raycast(own.Position, part.Position - own.Position, params)
-	return not hit or hit.Instance:IsDescendantOf(part.Parent)
+	local hit = Workspace:Raycast(ownRoot.Position, part.Position - ownRoot.Position, params)
+
+	if hit and not hit.Instance:IsDescendantOf(part.Parent) then
+		return false
+	end
+	return true
 end
 
-local function findBest()
-	local best, bestDist = nil, math.huge
-	local own = getRoot(LP.Character)
-	if not own then return nil end
+local function findBestTarget()
+	local best = nil
+	local bestDist = math.huge
 	local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+	local ownRoot = getRoot(LP.Character)
+	if not ownRoot then return nil end
 
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p == LP or not p.Character or not isAlive(p) then continue end
-		if S.AimTeam and sameTeam(p) then continue end
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player == LP then continue end
+		if not player.Character or not isAlive(player) then continue end
+		if S.TeamCheck and sameTeam(player) then continue end
 
-		local part = getAimPart(p.Character)
-		if not part then continue end
+		local head = player.Character:FindFirstChild("Head")
+		if not head then continue end
 
-		local dist3d = (own.Position - part.Position).Magnitude
-		if dist3d > S.AimDist then continue end
+		local dist3d = (ownRoot.Position - head.Position).Magnitude
+		if dist3d > AIM_MAX_DIST then continue end
 
-		local sp, on = Camera:WorldToViewportPoint(part.Position)
-		if not on then continue end
+		local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+		if not onScreen then continue end
 
-		local screenDist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-		if screenDist > S.AimFOV then continue end
-		if S.AimVisible and not isVisible(part) then continue end
+		local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+		if screenDist > FOV_RADIUS then continue end
+
+		if not isVisibleToCamera(head) then continue end
 
 		if screenDist < bestDist then
 			bestDist = screenDist
-			best = p
+			best = player
 		end
 	end
-	return best
-end
 
-local function isAimOn()
-	if not S.Aim then return false end
-	if S.AimMode == "Auto" then return true end
-	if S.AimMode == "Toggle" then return S.AimActive end
-	return aimHeld
+	return best
 end
 
 -- ====================== GUI ======================
@@ -445,581 +260,226 @@ local Gui = make("ScreenGui", {
 	ResetOnSpawn = false,
 	IgnoreGuiInset = true,
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-	DisplayOrder = 60,
+	DisplayOrder = 50,
 }, PlayerGui)
 
-UIESP.Parent = Gui
-
-local Toggle = make("TextButton", {
+-- Botão principal
+local ToggleBtn = make("TextButton", {
 	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -14, 0, 14),
-	Size = UDim2.fromOffset(70, 46),
-	BackgroundColor3 = theme().panel,
+	Position = UDim2.new(1, -16, 0, 16),
+	Size = UDim2.fromOffset(72, 48),
+	BackgroundColor3 = Color3.fromRGB(18, 22, 32),
 	Text = "Ember",
-	TextColor3 = accent(),
-	TextSize = 14,
+	TextColor3 = Color3.fromRGB(80, 220, 255),
+	TextSize = 15,
 	Font = Enum.Font.GothamBold,
 	AutoButtonColor = false,
 }, Gui)
-corner(Toggle, 13)
-stroke(Toggle, accent(), 0.25)
+corner(ToggleBtn, 14)
+stroke(ToggleBtn, Color3.fromRGB(80, 220, 255), 0.4)
 
+-- Painel
 local Panel = make("Frame", {
 	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -14, 0, 68),
-	Size = UDim2.fromOffset(300, 520),
-	BackgroundColor3 = theme().bg,
-	Visible = S.Panel,
+	Position = UDim2.new(1, -16, 0, 74),
+	Size = UDim2.fromOffset(260, 280),
+	BackgroundColor3 = Color3.fromRGB(14, 17, 26),
+	Visible = true,
 }, Gui)
 corner(Panel, 16)
-stroke(Panel, theme().border, 0.25)
+stroke(Panel, Color3.fromRGB(50, 60, 80), 0.4)
 
-local Top = make("Frame", {
-	Size = UDim2.new(1, 0, 0, 54),
-	BackgroundColor3 = theme().panel,
+-- Header
+local Header = make("Frame", {
+	Size = UDim2.new(1, 0, 0, 50),
+	BackgroundColor3 = Color3.fromRGB(20, 25, 38),
 }, Panel)
-corner(Top, 16)
+corner(Header, 16)
 
 make("TextLabel", {
 	BackgroundTransparency = 1,
-	Position = UDim2.fromOffset(16, 9),
-	Size = UDim2.new(1, -60, 0, 18),
+	Position = UDim2.fromOffset(16, 14),
+	Size = UDim2.new(1, -50, 0, 22),
 	Text = "Ember's Cheats",
-	TextColor3 = theme().text,
-	TextSize = 14,
+	TextColor3 = Color3.fromRGB(240, 245, 255),
+	TextSize = 15,
 	Font = Enum.Font.GothamBold,
 	TextXAlignment = Enum.TextXAlignment.Left,
-}, Top)
+}, Header)
 
-make("TextLabel", {
-	BackgroundTransparency = 1,
-	Position = UDim2.fromOffset(16, 30),
-	Size = UDim2.new(1, -60, 0, 14),
-	Text = "Arraste • Toque nas abas",
-	TextColor3 = theme().muted,
-	TextSize = 10,
-	TextXAlignment = Enum.TextXAlignment.Left,
-}, Top)
-
-local Close = make("TextButton", {
+local CloseBtn = make("TextButton", {
 	AnchorPoint = Vector2.new(1, 0.5),
-	Position = UDim2.new(1, -6, 0.5, 0),
-	Size = UDim2.fromOffset(40, 40),
+	Position = UDim2.new(1, -8, 0.5, 0),
+	Size = UDim2.fromOffset(36, 36),
 	BackgroundTransparency = 1,
 	Text = "✕",
-	TextColor3 = theme().muted,
+	TextColor3 = Color3.fromRGB(150, 160, 180),
 	TextSize = 18,
-}, Top)
+}, Header)
 
-local TabBar = make("Frame", {
+-- Conteúdo
+local Content = make("Frame", {
 	BackgroundTransparency = 1,
-	Position = UDim2.fromOffset(12, 62),
-	Size = UDim2.new(1, -24, 0, 36),
+	Position = UDim2.fromOffset(14, 60),
+	Size = UDim2.new(1, -28, 1, -74),
 }, Panel)
+
 make("UIListLayout", {
-	FillDirection = Enum.FillDirection.Horizontal,
-	Padding = UDim.new(0, 6),
-	HorizontalAlignment = Enum.HorizontalAlignment.Center,
-}, TabBar)
+	Padding = UDim.new(0, 10),
+	SortOrder = Enum.SortOrder.LayoutOrder,
+}, Content)
 
-local Tabs = {}
-local function makeTab(name, icon)
-	local b = make("TextButton", {
-		Size = UDim2.new(1/3, -4, 1, 0),
-		BackgroundColor3 = theme().card,
-		Text = icon .. " " .. name,
-		TextColor3 = theme().text,
-		TextSize = 12,
-		Font = Enum.Font.GothamBold,
-		AutoButtonColor = false,
-	}, TabBar)
-	corner(b, 10)
-	Tabs[name] = b
-	return b
-end
-
-local TabESP = makeTab("ESP", "◉")
-local TabAIM = makeTab("AIM", "◎")
-local TabCFG = makeTab("CFG", "✦")
-
-local function makeContent()
-	local sf = make("ScrollingFrame", {
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(12, 106),
-		Size = UDim2.new(1, -24, 1, -118),
-		ScrollBarThickness = 3,
-		AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		CanvasSize = UDim2.new(),
-	}, Panel)
-	make("UIListLayout", {Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder}, sf)
-	make("UIPadding", {PaddingBottom = UDim.new(0, 10)}, sf)
-	return sf
-end
-
-local CESP = makeContent()
-local CAIM = makeContent()
-local CCFG = makeContent()
-
-local function section(parent, text)
-	return make("TextLabel", {
-		BackgroundTransparency = 1,
-		Size = UDim2.new(1, 0, 0, 20),
-		Text = text:upper(),
-		TextColor3 = theme().muted,
-		TextSize = 10,
-		Font = Enum.Font.GothamBold,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, parent)
-end
-
-local function makeToggle(parent, text, icon)
-	local f = make("Frame", {
-		Size = UDim2.new(1, 0, 0, CFG.ButtonH),
-		BackgroundColor3 = theme().card,
-	}, parent)
-	corner(f, 11)
-	stroke(f, theme().border, 0.5)
+local function createToggle(text, default)
+	local frame = make("Frame", {
+		Size = UDim2.new(1, 0, 0, 48),
+		BackgroundColor3 = Color3.fromRGB(24, 30, 44),
+	}, Content)
+	corner(frame, 12)
 
 	make("TextLabel", {
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(12, 0),
-		Size = UDim2.fromOffset(26, CFG.ButtonH),
-		Text = icon,
-		TextColor3 = accent(),
-		TextSize = 15,
-		Font = Enum.Font.GothamBold,
-	}, f)
-
-	make("TextLabel", {
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(40, 0),
-		Size = UDim2.new(1, -90, 1, 0),
+		Position = UDim2.fromOffset(14, 0),
+		Size = UDim2.new(1, -70, 1, 0),
 		Text = text,
-		TextColor3 = theme().text,
-		TextSize = 13,
+		TextColor3 = Color3.fromRGB(235, 240, 250),
+		TextSize = 14,
 		Font = Enum.Font.GothamMedium,
 		TextXAlignment = Enum.TextXAlignment.Left,
-	}, f)
+	}, frame)
 
-	local sw = make("Frame", {
+	local switch = make("Frame", {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -10, 0.5, 0),
-		Size = UDim2.fromOffset(42, 24),
-		BackgroundColor3 = theme().border,
-	}, f)
-	corner(sw, 12)
+		Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.fromOffset(44, 26),
+		BackgroundColor3 = default and Color3.fromRGB(80, 220, 255) or Color3.fromRGB(55, 65, 85),
+	}, frame)
+	corner(switch, 13)
 
 	local knob = make("Frame", {
 		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.fromOffset(2, 0.5),
-		Size = UDim2.fromOffset(20, 20),
+		Position = default and UDim2.new(1, -24, 0.5, 0) or UDim2.fromOffset(2, 0.5),
+		Size = UDim2.fromOffset(22, 22),
 		BackgroundColor3 = Color3.new(1, 1, 1),
-	}, sw)
-	corner(knob, 10)
+	}, switch)
+	corner(knob, 11)
 
 	local btn = make("TextButton", {
 		BackgroundTransparency = 1,
 		Size = UDim2.fromScale(1, 1),
 		Text = "",
-	}, f)
+	}, frame)
 
-	return {f = f, btn = btn, sw = sw, knob = knob}
+	return {
+		btn = btn,
+		switch = switch,
+		knob = knob,
+		value = default,
+	}
 end
 
-local function setToggle(t, on)
-	local col = on and accent() or theme().border
-	local pos = on and UDim2.new(1, -22, 0.5, 0) or UDim2.fromOffset(2, 0.5)
-	TweenService:Create(t.sw, TweenInfo.new(0.13), {BackgroundColor3 = col}):Play()
-	TweenService:Create(t.knob, TweenInfo.new(0.13), {Position = pos}):Play()
-end
+local tAim = createToggle("Aimbot Hard Lock", false)
+local tESP = createToggle("ESP", true)
+local tTeam = createToggle("Ignorar Time", true)
+local tRun = createToggle("Auto Run (+5%)", false)
 
-local function makeOpt(parent, text, icon)
-	local f = make("Frame", {
-		Size = UDim2.new(1, 0, 0, CFG.ButtonH),
-		BackgroundColor3 = theme().card,
-	}, parent)
-	corner(f, 11)
-	stroke(f, theme().border, 0.5)
+local function setToggle(t, value)
+	t.value = value
+	local color = value and Color3.fromRGB(80, 220, 255) or Color3.fromRGB(55, 65, 85)
+	local pos = value and UDim2.new(1, -24, 0.5, 0) or UDim2.fromOffset(2, 0.5)
 
-	make("TextLabel", {
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(12, 0),
-		Size = UDim2.fromOffset(26, CFG.ButtonH),
-		Text = icon,
-		TextColor3 = accent(),
-		TextSize = 15,
-		Font = Enum.Font.GothamBold,
-	}, f)
-
-	local label = make("TextLabel", {
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(40, 0),
-		Size = UDim2.new(1, -16, 1, 0),
-		Text = text,
-		TextColor3 = theme().text,
-		TextSize = 13,
-		Font = Enum.Font.GothamMedium,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, f)
-
-	local btn = make("TextButton", {
-		BackgroundTransparency = 1,
-		Size = UDim2.fromScale(1, 1),
-		Text = "",
-	}, f)
-
-	return {f = f, btn = btn, label = label}
-end
-
--- Conteúdo
-section(CESP, "CONTROLES")
-local tESP = makeToggle(CESP, "ESP geral", "◉")
-local tTeam = makeToggle(CESP, "Ignorar time", "♟")
-local oDist = makeOpt(CESP, "Alcance máximo", "↔")
-
-section(CESP, "EXIBIÇÃO")
-local tHP = makeToggle(CESP, "Mostrar vida", "♥")
-local tDist = makeToggle(CESP, "Mostrar distância", "↔")
-local tBox = makeToggle(CESP, "Box ESP", "□")
-local tSkel = makeToggle(CESP, "Skeleton", "☠")
-local tTracer = makeToggle(CESP, "Tracers", "→")
-
-section(CESP, "APARÊNCIA")
-local oTheme = makeOpt(CESP, "Tema", "◐")
-local oColor = makeOpt(CESP, "Sub cor", "◆")
-
-section(CAIM, "AIMBOT")
-local tAim = makeToggle(CAIM, "Aimbot", "◎")
-local oMode = makeOpt(CAIM, "Modo", "⌖")
-local tAimBtn = makeToggle(CAIM, "Botão de mira", "◉")
-local oPart = makeOpt(CAIM, "Parte do alvo", "◎")
-local oAimDist = makeOpt(CAIM, "Alcance", "↔")
-local oFOV = makeOpt(CAIM, "FOV", "◯")
-local tAimTeam = makeToggle(CAIM, "Ignorar time", "♟")
-local tVisible = makeToggle(CAIM, "Só visível", "◉")
-
-section(CCFG, "PERSONAGEM")
-local oSpeed = makeOpt(CCFG, "Velocidade", "»")
-local oJump = makeOpt(CCFG, "Pulo", "↑")
-local tRun = makeToggle(CCFG, "Auto correr", "»")
-local tInf = makeToggle(CCFG, "Pulo infinito", "∞")
-
-section(CCFG, "FLY")
-local tFly = makeToggle(CCFG, "Fly", "▲")
-local oFlySpd = makeOpt(CCFG, "Fly speed", "▲")
-
--- Botões flutuantes
-local AimBtn = make("TextButton", {
-	Size = UDim2.fromOffset(CFG.AimSize, CFG.AimSize),
-	BackgroundColor3 = theme().panel,
-	Text = "◎",
-	TextColor3 = accent(),
-	TextSize = 24,
-	Font = Enum.Font.GothamBold,
-	Visible = false,
-	AutoButtonColor = false,
-}, Gui)
-corner(AimBtn, 20)
-stroke(AimBtn, accent(), 0.3, 2)
-
-local FlyUp = make("TextButton", {
-	AnchorPoint = Vector2.new(1, 1),
-	Position = UDim2.new(1, -18, 1, -170),
-	Size = UDim2.fromOffset(CFG.FlySize, CFG.FlySize),
-	BackgroundColor3 = theme().panel,
-	Text = "▲",
-	TextColor3 = accent(),
-	TextSize = 20,
-	Visible = false,
-	AutoButtonColor = false,
-}, Gui)
-corner(FlyUp, 16)
-
-local FlyDown = make("TextButton", {
-	AnchorPoint = Vector2.new(1, 1),
-	Position = UDim2.new(1, -18, 1, -95),
-	Size = UDim2.fromOffset(CFG.FlySize, CFG.FlySize),
-	BackgroundColor3 = theme().panel,
-	Text = "▼",
-	TextColor3 = accent(),
-	TextSize = 20,
-	Visible = false,
-	AutoButtonColor = false,
-}, Gui)
-corner(FlyDown, 16)
-
-local FOV = make("Frame", {
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	BackgroundTransparency = 1,
-	Visible = false,
-}, Gui)
-corner(FOV, 999)
-stroke(FOV, accent(), 0.55, 1.5)
-
-local TargetLbl = make("TextLabel", {
-	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0.5, 48),
-	Size = UDim2.fromOffset(200, 20),
-	BackgroundTransparency = 1,
-	Text = "",
-	TextColor3 = accent(),
-	TextSize = 12,
-	Font = Enum.Font.GothamBold,
-	TextStrokeTransparency = 0.5,
-	Visible = false,
-}, Gui)
-
--- ====================== REFRESH ======================
-local function refresh()
-	local th = theme()
-	Panel.BackgroundColor3 = th.bg
-	Top.BackgroundColor3 = th.panel
-	Toggle.BackgroundColor3 = th.panel
-	Toggle.TextColor3 = accent()
-
-	setToggle(tESP, S.ESP)
-	setToggle(tTeam, S.TeamCheck)
-	oDist.label.Text = "Alcance máximo  •  " .. S.MaxDist .. "m"
-	setToggle(tHP, S.ShowHP)
-	setToggle(tDist, S.ShowDist)
-	setToggle(tBox, S.Boxes)
-	setToggle(tSkel, S.Skeleton)
-	setToggle(tTracer, S.Tracers)
-	oTheme.label.Text = "Tema  •  " .. S.Theme
-	oColor.label.Text = "Sub cor  •  " .. S.Color
-
-	setToggle(tAim, S.Aim)
-	local modes = {Auto = "Automático", Toggle = "Alternar", Hold = "Segurar"}
-	oMode.label.Text = "Modo  •  " .. (modes[S.AimMode] or S.AimMode)
-	setToggle(tAimBtn, S.AimButton)
-	oPart.label.Text = "Alvo  •  " .. S.AimPart
-	oAimDist.label.Text = "Alcance  •  " .. S.AimDist .. "m"
-	oFOV.label.Text = "FOV  •  " .. S.AimFOV .. "°"
-	setToggle(tAimTeam, S.AimTeam)
-	setToggle(tVisible, S.AimVisible)
-
-	oSpeed.label.Text = "Velocidade  •  " .. S.Speed
-	oJump.label.Text = "Pulo  •  " .. S.Jump
-	setToggle(tRun, S.AutoRun)
-	setToggle(tInf, S.InfJump)
-	setToggle(tFly, S.Fly)
-	oFlySpd.label.Text = "Fly speed  •  " .. S.FlySpeed
-
-	for name, b in pairs(Tabs) do
-		if name == S.Tab then
-			b.BackgroundColor3 = accent()
-			b.TextColor3 = th.bg
-		else
-			b.BackgroundColor3 = th.card
-			b.TextColor3 = th.text
-		end
-	end
-	CESP.Visible = S.Tab == "ESP"
-	CAIM.Visible = S.Tab == "AIM"
-	CCFG.Visible = S.Tab == "CFG"
-
-	AimBtn.Visible = S.Aim and S.AimButton
-	if S.AimMode == "Hold" then
-		AimBtn.BackgroundColor3 = aimHeld and accent() or th.panel
-		AimBtn.TextColor3 = aimHeld and Color3.new(0,0,0) or accent()
-	elseif S.AimMode == "Toggle" then
-		AimBtn.BackgroundColor3 = S.AimActive and accent() or th.panel
-		AimBtn.TextColor3 = S.AimActive and Color3.new(0,0,0) or accent()
-	else
-		AimBtn.BackgroundColor3 = th.panel
-		AimBtn.TextColor3 = accent()
-	end
-
-	FlyUp.Visible = S.Fly
-	FlyDown.Visible = S.Fly
+	TweenService:Create(t.switch, TweenInfo.new(0.15), {BackgroundColor3 = color}):Play()
+	TweenService:Create(t.knob, TweenInfo.new(0.15), {Position = pos}):Play()
 end
 
 -- ====================== CONNECTIONS ======================
-local function click(btn, fn)
-	btn.MouseButton1Click:Connect(fn)
-end
-
-click(TabESP, function() S.Tab = "ESP" refresh() end)
-click(TabAIM, function() S.Tab = "AIM" refresh() end)
-click(TabCFG, function() S.Tab = "CFG" refresh() end)
-
-click(tESP.btn, function() S.ESP = not S.ESP refresh() end)
-click(tTeam.btn, function() S.TeamCheck = not S.TeamCheck refresh() end)
-click(oDist.btn, function()
-	S.MaxDist = S.MaxDist >= 2000 and 100 or math.min(S.MaxDist + 100, 2000)
-	refresh()
-end)
-click(tHP.btn, function() S.ShowHP = not S.ShowHP refresh() end)
-click(tDist.btn, function() S.ShowDist = not S.ShowDist refresh() end)
-click(tBox.btn, function() S.Boxes = not S.Boxes refresh() end)
-click(tSkel.btn, function() S.Skeleton = not S.Skeleton refresh() end)
-click(tTracer.btn, function() S.Tracers = not S.Tracers refresh() end)
-click(oTheme.btn, function() S.Theme = S.Theme == "Dark" and "Light" or "Dark" refresh() end)
-click(oColor.btn, function()
-	local keys = {}
-	for k in pairs(Colors) do table.insert(keys, k) end
-	table.sort(keys)
-	local i = table.find(keys, S.Color) or 1
-	S.Color = keys[i % #keys + 1]
-	refresh()
-end)
-
-click(tAim.btn, function()
+tAim.btn.MouseButton1Click:Connect(function()
 	S.Aim = not S.Aim
-	if not S.Aim then S.AimActive = false aimHeld = false end
-	refresh()
-end)
-click(oMode.btn, function()
-	local m = {"Auto", "Toggle", "Hold"}
-	local i = table.find(m, S.AimMode) or 1
-	S.AimMode = m[i % #m + 1]
-	S.AimActive = false
-	aimHeld = false
-	refresh()
-end)
-click(tAimBtn.btn, function() S.AimButton = not S.AimButton refresh() end)
-click(oPart.btn, function()
-	local p = {"Head", "Torso", "HumanoidRootPart"}
-	local i = table.find(p, S.AimPart) or 1
-	S.AimPart = p[i % #p + 1]
-	refresh()
-end)
-click(oAimDist.btn, function()
-	S.AimDist = S.AimDist >= 1000 and 100 or S.AimDist + 100
-	refresh()
-end)
-click(oFOV.btn, function()
-	S.AimFOV = S.AimFOV >= 360 and 40 or S.AimFOV + 30
-	refresh()
-end)
-click(tAimTeam.btn, function() S.AimTeam = not S.AimTeam refresh() end)
-click(tVisible.btn, function() S.AimVisible = not S.AimVisible refresh() end)
-
-click(oSpeed.btn, function()
-	local s = {1, 16, 25, 50, 100}
-	local i = table.find(s, S.Speed) or 1
-	S.Speed = s[i % #s + 1]
-	refresh() applyStats()
-end)
-click(oJump.btn, function()
-	local j = {40, 100, 200, 400, 800}
-	local i = table.find(j, S.Jump) or 1
-	S.Jump = j[i % #j + 1]
-	refresh() applyStats()
-end)
-click(tRun.btn, function() S.AutoRun = not S.AutoRun refresh() applyStats() end)
-click(tInf.btn, function() S.InfJump = not S.InfJump refresh() end)
-click(tFly.btn, function()
-	if S.Fly then disableFly() else enableFly() end
-	refresh()
-end)
-click(oFlySpd.btn, function()
-	S.FlySpeed = S.FlySpeed >= 200 and 20 or S.FlySpeed + 20
-	refresh()
+	setToggle(tAim, S.Aim)
 end)
 
-click(Toggle, function()
+tESP.btn.MouseButton1Click:Connect(function()
+	S.ESP = not S.ESP
+	setToggle(tESP, S.ESP)
+end)
+
+tTeam.btn.MouseButton1Click:Connect(function()
+	S.TeamCheck = not S.TeamCheck
+	setToggle(tTeam, S.TeamCheck)
+end)
+
+tRun.btn.MouseButton1Click:Connect(function()
+	S.AutoRun = not S.AutoRun
+	setToggle(tRun, S.AutoRun)
+	applySpeed()
+end)
+
+ToggleBtn.MouseButton1Click:Connect(function()
 	S.Panel = not S.Panel
 	Panel.Visible = S.Panel
 end)
-click(Close, function()
+
+CloseBtn.MouseButton1Click:Connect(function()
 	S.Panel = false
 	Panel.Visible = false
 end)
 
-AimBtn.InputBegan:Connect(function(input)
-	if input.UserInputType ~= Enum.UserInputType.Touch and input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-	if S.AimMode == "Hold" then aimHeld = true refresh() end
-end)
-AimBtn.InputEnded:Connect(function(input)
-	if input.UserInputType ~= Enum.UserInputType.Touch and input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-	if S.AimMode == "Hold" then
-		aimHeld = false
-		refresh()
-	elseif S.AimMode == "Toggle" then
-		S.AimActive = not S.AimActive
-		refresh()
-	end
-end)
-
-FlyUp.InputBegan:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then S.FlyUp = true end
-end)
-FlyUp.InputEnded:Connect(function() S.FlyUp = false end)
-FlyDown.InputBegan:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then S.FlyDown = true end
-end)
-FlyDown.InputEnded:Connect(function() S.FlyDown = false end)
-
+-- Arrastar painel
 do
-	local drag, start, pos
-	Top.InputBegan:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
-			drag = true
-			start = i.Position
-			pos = Panel.Position
+	local dragging, startPos, panelPos
+	Header.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true
+			startPos = input.Position
+			panelPos = Panel.Position
 		end
 	end)
-	UserInputService.InputChanged:Connect(function(i)
-		if not drag then return end
-		if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement then
-			local d = i.Position - start
-			Panel.Position = UDim2.new(pos.X.Scale, pos.X.Offset + d.X, pos.Y.Scale, pos.Y.Offset + d.Y)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if not dragging then return end
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+			local delta = input.Position - startPos
+			Panel.Position = UDim2.new(panelPos.X.Scale, panelPos.X.Offset + delta.X, panelPos.Y.Scale, panelPos.Y.Offset + delta.Y)
 		end
 	end)
-	UserInputService.InputEnded:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
-			drag = false
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = false
 		end
 	end)
 end
 
--- ====================== LOOP ======================
-refresh()
+-- ====================== MAIN LOOP ======================
+local espTimer = 0
 
-local acc = 0
 RunService.Heartbeat:Connect(function(dt)
-	acc += dt
-
-	if S.ESP and acc >= CFG.UpdateRate then
-		acc = 0
-		for _, p in ipairs(Players:GetPlayers()) do
-			updateESP(p)
+	-- ESP update
+	espTimer += dt
+	if S.ESP and espTimer >= 0.08 then
+		espTimer = 0
+		for _, player in ipairs(Players:GetPlayers()) do
+			pcall(updateESP, player)
 		end
 	end
 
+	-- Aimbot Hard Lock
 	if S.Aim then
-		local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-		FOV.Visible = true
-		FOV.Position = UDim2.fromOffset(center.X, center.Y)
-		FOV.Size = UDim2.fromOffset(S.AimFOV * 2, S.AimFOV * 2)
-
-		aimTarget = findBest()
-		if aimTarget and aimTarget.Character then
-			aimPart = getAimPart(aimTarget.Character)
-		else
-			aimPart = nil
+		currentTarget = findBestTarget()
+		if currentTarget and currentTarget.Character then
+			local head = currentTarget.Character:FindFirstChild("Head")
+			if head then
+				Camera.CFrame = CFrame.new(Camera.CFrame.Position, head.Position)
+			end
 		end
-
-		if isAimOn() and aimPart then
-			Camera.CFrame = CFrame.new(Camera.CFrame.Position, aimPart.Position)
-			TargetLbl.Text = "Mirando: " .. aimTarget.DisplayName
-			TargetLbl.Visible = true
-		else
-			TargetLbl.Visible = false
-		end
-	else
-		FOV.Visible = false
-		TargetLbl.Visible = false
-		AimBtn.Visible = false
 	end
 
-	if S.AutoRun and not S.Fly then
+	-- Auto Run
+	if S.AutoRun then
 		local hum = getHum(LP.Character)
-		if hum then hum:Move(Vector3.new(0, 0, -1), true) end
+		if hum then
+			hum:Move(Vector3.new(0, 0, -1), true)
+		end
 	end
-
-	applyStats()
 end)
 
 print("✅ Ember's Cheats carregado")
