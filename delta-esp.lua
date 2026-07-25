@@ -31,27 +31,6 @@ local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
 local playerMouse = localPlayer:GetMouse()
 
--- Security lock -----------------------------------------------------------
-
--- Troque pelos PlaceIds das suas próprias experiências.
-local ALLOWED_PLACE_IDS = {
-    [0] = true, -- 0 mantém o script bloqueado até você configurar seu PlaceId.
-}
-
-local function isAuthorized(): boolean
-    if RunService:IsStudio() then
-        return true
-    end
-
-    return ALLOWED_PLACE_IDS[game.PlaceId] == true
-        and localPlayer:GetAttribute("CanUseCHDebug") == true
-end
-
-if not isAuthorized() then
-    warn("CH Debug Overlay bloqueado: experiência ou jogador não autorizado.")
-    return
-end
-
 -- Configuration -----------------------------------------------------------
 
 local CONFIG = {
