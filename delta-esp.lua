@@ -25,6 +25,7 @@ local GuiService = game:GetService("GuiService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 local HapticService = game:GetService("HapticService")
+local ContextActionService = game:GetService("ContextActionService")
 
 -- Local player
 local localPlayer = Players.LocalPlayer
@@ -46,8 +47,15 @@ local CONFIG = {
     MOBILE_AIM_BUTTON_SIZE = 76,
     MOBILE_AIM_BUTTON_DEFAULT_X = 24,
     MOBILE_AIM_BUTTON_DEFAULT_Y = -104,
+    MOBILE_FLY_BUTTON_SIZE = 60,
     BUTTON_HEIGHT = 48,
-    TAB_HEIGHT = 48,
+    TAB_HEIGHT = 40,
+    DEFAULT_WALK_SPEED = 16,
+    DEFAULT_JUMP_POWER = 50,
+    MAX_WALK_SPEED = 100,
+    MAX_JUMP_POWER = 800,
+    FLY_SPEED_MIN = 20,
+    FLY_SPEED_MAX = 200,
 }
 
 local theme = {
@@ -113,6 +121,15 @@ local state = {
     aimTeamCheck = true,
     aimVisibleOnly = true,
     aimFov = 180,
+    -- Configs (character)
+    walkSpeed = CONFIG.DEFAULT_WALK_SPEED,
+    jumpPower = CONFIG.DEFAULT_JUMP_POWER,
+    flyEnabled = false,
+    flySpeed = 50,
+    flyUp = false,
+    flyDown = false,
+    autoRun = false,
+    infiniteJump = false,
     -- UI
     panelOpen = true,
     activeTab = "ESP",
@@ -143,6 +160,9 @@ loadState()
 state.aimSmooth = math.clamp(state.aimSmooth, CONFIG.AIM_SMOOTH_MIN, CONFIG.AIM_SMOOTH_MAX)
 state.aimFov = math.clamp(state.aimFov, 10, 360)
 state.aimMaxDistance = math.clamp(state.aimMaxDistance, 50, CONFIG.MAX_DISTANCE)
+state.walkSpeed = math.clamp(state.walkSpeed, 1, CONFIG.MAX_WALK_SPEED)
+state.jumpPower = math.clamp(state.jumpPower, 40, CONFIG.MAX_JUMP_POWER)
+state.flySpeed = math.clamp(state.flySpeed, CONFIG.FLY_SPEED_MIN, CONFIG.FLY_SPEED_MAX)
 
 -- Utility -----------------------------------------------------------------
 
@@ -193,6 +213,181 @@ local function getCurrentTheme()
     return theme[state.theme]
 end
 
+-- Character helpers -------------------------------------------------------
+
+local function getCharacterRoot(character: Model): BasePart?
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if root and root:IsA("BasePart") then
+        return root
+    end
+    root = character:WaitForChild("HumanoidRootPart", 3)
+    if root and root:IsA("BasePart") then
+        return root
+    end
+    return nil
+end
+
+local function getHumanoid(character: Model): Humanoid?
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    return humanoid
+end
+
+local function applyCharacterStats(character: Model?)
+    local char = character or localPlayer.Character
+    if not char then
+        return
+    end
+
+    local humanoid = getHumanoid(char)
+    if not humanoid then
+        return
+    end
+
+    local finalSpeed = state.walkSpeed
+    if state.autoRun then
+        finalSpeed = math.min(finalSpeed * 1.07, CONFIG.MAX_WALK_SPEED)
+    end
+
+    humanoid.WalkSpeed = finalSpeed
+    humanoid.JumpPower = state.jumpPower
+end
+
+local function resetCharacterStats(character: Model?)
+    local char = character or localPlayer.Character
+    if not char then
+        return
+    end
+
+    local humanoid = getHumanoid(char)
+    if not humanoid then
+        return
+    end
+
+    humanoid.WalkSpeed = CONFIG.DEFAULT_WALK_SPEED
+    humanoid.JumpPower = CONFIG.DEFAULT_JUMP_POWER
+end
+
+-- Fly logic
+local flyBodyVelocity: BodyVelocity?
+local flyConnection: RBXScriptConnection?
+
+local function disableFly()
+    state.flyEnabled = false
+    state.flyUp = false
+    state.flyDown = false
+
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+
+    if flyBodyVelocity then
+        flyBodyVelocity:Destroy()
+        flyBodyVelocity = nil
+    end
+
+    local char = localPlayer.Character
+    local humanoid = char and getHumanoid(char)
+    if humanoid then
+        humanoid.PlatformStand = false
+        humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
+end
+
+local function enableFly()
+    if flyConnection then
+        return
+    end
+
+    local char = localPlayer.Character
+    local humanoid = char and getHumanoid(char)
+    local root = char and getCharacterRoot(char)
+    if not char or not humanoid or not root then
+        return
+    end
+
+    flyBodyVelocity = make("BodyVelocity", {
+        MaxForce = Vector3.new(1e9, 1e9, 1e9),
+        Velocity = Vector3.zero,
+    }, root) :: BodyVelocity
+
+    humanoid.PlatformStand = true
+
+    flyConnection = RunService.Heartbeat:Connect(function()
+        if not state.flyEnabled then
+            disableFly()
+            return
+        end
+
+        local currentChar = localPlayer.Character
+        local currentHum = currentChar and getHumanoid(currentChar)
+        local currentRoot = currentChar and getCharacterRoot(currentChar)
+        if not currentChar or not currentHum or not currentRoot then
+            disableFly()
+            return
+        end
+
+        local camera = Workspace.CurrentCamera
+        local moveDir = currentHum.MoveDirection
+        local velocity = Vector3.zero
+
+        if moveDir.Magnitude > 0 then
+            local forward = camera.CFrame.LookVector * moveDir.Z
+            local right = camera.CFrame.RightVector * moveDir.X
+            velocity = (forward + right) * state.flySpeed
+        end
+
+        if state.flyUp then
+            velocity = velocity + Vector3.new(0, state.flySpeed, 0)
+        elseif state.flyDown then
+            velocity = velocity - Vector3.new(0, state.flySpeed, 0)
+        end
+
+        if flyBodyVelocity and flyBodyVelocity.Parent then
+            flyBodyVelocity.Velocity = velocity
+        end
+    end)
+end
+
+local function toggleFly(enabled: boolean)
+    if enabled then
+        enableFly()
+    else
+        disableFly()
+    end
+    state.flyEnabled = enabled
+    saveState()
+end
+
+-- Infinite jump
+UserInputService.JumpRequest:Connect(function()
+    if not state.infiniteJump then
+        return
+    end
+
+    local char = localPlayer.Character
+    local humanoid = char and getHumanoid(char)
+    if not humanoid then
+        return
+    end
+
+    if not humanoid.FloorMaterial or humanoid.FloorMaterial == Enum.Material.Air then
+        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end)
+
+-- Apply stats when character spawns/respawns
+local function setupCharacter(character: Model)
+    task.defer(function()
+        applyCharacterStats(character)
+    end)
+end
+
+localPlayer.CharacterAdded:Connect(setupCharacter)
+if localPlayer.Character then
+    setupCharacter(localPlayer.Character)
+end
+
 -- ESP logic ---------------------------------------------------------------
 
 local espFolder = make("Folder", {
@@ -222,23 +417,6 @@ local function clearAllESP()
     for _, folder in espFolder:GetChildren() do
         folder:Destroy()
     end
-end
-
-local function getCharacterRoot(character: Model): BasePart?
-    local root = character:FindFirstChild("HumanoidRootPart")
-    if root and root:IsA("BasePart") then
-        return root
-    end
-    root = character:WaitForChild("HumanoidRootPart", 3)
-    if root and root:IsA("BasePart") then
-        return root
-    end
-    return nil
-end
-
-local function getHumanoid(character: Model): Humanoid?
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    return humanoid
 end
 
 local skeletonJoints = {
@@ -372,9 +550,9 @@ local function createESP(player: Player, character: Model)
         table.insert(lines, {line = line, a = pair[1], b = pair[2]})
     end
 
-    folder:SetAttribute("BoxAdornee", boxAdornee)
-    folder:SetAttribute("Tracer", tracer)
-    folder:SetAttribute("Lines", lines)
+    folder.BoxAdornee = boxAdornee
+    folder.Tracer = tracer
+    folder.Lines = lines
 end
 
 local function updateESP(player: Player)
@@ -391,9 +569,9 @@ local function updateESP(player: Player)
     local billboard = folder:FindFirstChild("Billboard") :: BillboardGui?
     local label = billboard and billboard:FindFirstChild("Label") :: TextLabel?
     local skeletonFolder = folder:FindFirstChild("Skeleton") :: Folder?
-    local boxAdornee = folder:GetAttribute("BoxAdornee") :: BasePart?
-    local tracer = folder:GetAttribute("Tracer") :: Frame?
-    local lines = folder:GetAttribute("Lines") :: {{line: Frame, a: string, b: string}}?
+    local boxAdornee = folder.BoxAdornee :: BasePart?
+    local tracer = folder.Tracer :: Frame?
+    local lines = folder.Lines :: {{line: Frame, a: string, b: string}}?
 
     local root = getCharacterRoot(player.Character)
     local ownCharacter = localPlayer.Character
@@ -502,6 +680,8 @@ local function updateESP(player: Player)
     end
 end
 
+local playerConnections: {[Player]: {characterAdded: RBXScriptConnection?, teamChanged: RBXScriptConnection?}} = {}
+
 local function setupPlayer(player: Player)
     local function characterAdded(character: Model)
         task.defer(function()
@@ -521,8 +701,10 @@ local function setupPlayer(player: Player)
         updateESP(player)
     end)
 
-    player:SetAttribute("CH_CharacterAddedConn", characterAddedConn)
-    player:SetAttribute("CH_TeamChangedConn", teamChangedConn)
+    playerConnections[player] = {
+        characterAdded = characterAddedConn,
+        teamChanged = teamChangedConn,
+    }
 
     if player.Character then
         characterAdded(player.Character)
@@ -543,13 +725,15 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
     removeESP(player)
-    local charConn = player:GetAttribute("CH_CharacterAddedConn")
-    local teamConn = player:GetAttribute("CH_TeamChangedConn")
-    if charConn and typeof(charConn) == "RBXScriptConnection" then
-        charConn:Disconnect()
-    end
-    if teamConn and typeof(teamConn) == "RBXScriptConnection" then
-        teamConn:Disconnect()
+    local conns = playerConnections[player]
+    if conns then
+        if conns.characterAdded then
+            conns.characterAdded:Disconnect()
+        end
+        if conns.teamChanged then
+            conns.teamChanged:Disconnect()
+        end
+        playerConnections[player] = nil
     end
 end)
 
@@ -673,8 +857,7 @@ end
 local function aimAt(part: BasePart)
     local camera = Workspace.CurrentCamera
     local targetCFrame = CFrame.new(camera.CFrame.Position, part.Position)
-    local smooth = math.clamp(state.aimSmooth, CONFIG.AIM_SMOOTH_MIN, CONFIG.AIM_SMOOTH_MAX)
-    camera.CFrame = camera.CFrame:Lerp(targetCFrame, smooth)
+    camera.CFrame = targetCFrame
 end
 
 local function isAimActivated(): boolean
@@ -803,7 +986,7 @@ local tabBar = make("Frame", {
 
 make("UIListLayout", {
     FillDirection = Enum.FillDirection.Horizontal,
-    Padding = UDim.new(0, 8),
+    Padding = UDim.new(0, 6),
     SortOrder = Enum.SortOrder.LayoutOrder,
     HorizontalAlignment = Enum.HorizontalAlignment.Center,
     VerticalAlignment = Enum.VerticalAlignment.Center,
@@ -816,10 +999,10 @@ local function createTabButton(name: string): TextButton
         AutoButtonColor = false,
         BackgroundColor3 = getCurrentTheme().surface,
         BorderSizePixel = 0,
-        Size = UDim2.new(0.5, -4, 1, 0),
+        Size = UDim2.new(1 / 3, -4, 1, 0),
         Text = name,
         TextColor3 = getCurrentTheme().text,
-        TextSize = 14,
+        TextSize = 13,
         Font = Enum.Font.GothamBold,
     }, tabBar) :: TextButton
     corner(button, 10)
@@ -830,13 +1013,14 @@ end
 
 local espTabButton = createTabButton("ESP")
 local aimbotTabButton = createTabButton("Aimbot")
+local configsTabButton = createTabButton("Configs")
 
 -- Tab content containers
 local function createTabContent(): ScrollingFrame
     local frame = make("ScrollingFrame", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(15, 120),
-        Size = UDim2.new(1, -30, 1, -136),
+        Position = UDim2.fromOffset(15, 116),
+        Size = UDim2.new(1, -30, 1, -132),
         CanvasSize = UDim2.new(1, 0, 0, 0),
         ScrollBarThickness = 4,
         ScrollingDirection = Enum.ScrollingDirection.Y,
@@ -858,6 +1042,7 @@ end
 
 local contentESP = createTabContent()
 local contentAimbot = createTabContent()
+local contentConfigs = createTabContent()
 
 -- UI Builder helpers
 local function optionButton(parent: Instance, text: string): TextButton
@@ -888,6 +1073,94 @@ local function sectionLabel(parent: Instance, text: string)
     }, parent) :: TextLabel
     return label
 end
+
+-- Slider builder (mobile-friendly)
+local function createSlider(parent: Instance, min: number, max: number, labelText: string)
+    local container = make("Frame", {
+        BackgroundColor3 = getCurrentTheme().surface,
+        BorderSizePixel = 0,
+        Size = UDim2.new(1, 0, 0, 60),
+    }, parent) :: Frame
+    corner(container, 12)
+    stroke(container, getCurrentTheme().border, 0.55)
+
+    local title = make("TextLabel", {
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamMedium,
+        Position = UDim2.fromOffset(12, 8),
+        Size = UDim2.new(1, -80, 0, 18),
+        Text = labelText,
+        TextColor3 = getCurrentTheme().text,
+        TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, container) :: TextLabel
+
+    local valueLabel = make("TextLabel", {
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        Position = UDim2.new(1, -72, 0, 8),
+        Size = UDim2.fromOffset(60, 18),
+        Text = "0",
+        TextColor3 = getAccent(),
+        TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Right,
+    }, container) :: TextLabel
+
+    local track = make("Frame", {
+        BackgroundColor3 = getCurrentTheme().border,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 12, 0, 36),
+        Size = UDim2.new(1, -24, 0, 6),
+    }, container) :: Frame
+    corner(track, 3)
+
+    local fill = make("Frame", {
+        BackgroundColor3 = getAccent(),
+        BorderSizePixel = 0,
+        Position = UDim2.fromScale(0, 0),
+        Size = UDim2.fromScale(0, 1),
+    }, track) :: Frame
+    corner(fill, 3)
+
+    local knob = make("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = getCurrentTheme().text,
+        BorderSizePixel = 0,
+        Position = UDim2.fromScale(0, 0.5),
+        Size = UDim2.fromOffset(16, 16),
+        ZIndex = 2,
+    }, track) :: Frame
+    corner(knob, 8)
+
+    return {
+        container = container,
+        title = title,
+        valueLabel = valueLabel,
+        track = track,
+        fill = fill,
+        knob = knob,
+        min = min,
+        max = max,
+    }
+end
+
+local function updateSlider(slider, value: number)
+    local pct = (value - slider.min) / (slider.max - slider.min)
+    pct = math.clamp(pct, 0, 1)
+    slider.fill.Size = UDim2.fromScale(pct, 1)
+    slider.knob.Position = UDim2.fromScale(pct, 0.5)
+    slider.valueLabel.Text = tostring(math.round(value))
+end
+
+local function getSliderValueFromInput(slider, inputX: number): number
+    local trackAbs = slider.track.AbsolutePosition
+    local trackSize = slider.track.AbsoluteSize
+    local pct = (inputX - trackAbs.X) / trackSize.X
+    pct = math.clamp(pct, 0, 1)
+    return math.round(slider.min + pct * (slider.max - slider.min))
+end
+
+local sliders = {}
 
 -- ESP tab content
 sectionLabel(contentESP, "CONTROLES PRINCIPAIS")
@@ -941,6 +1214,30 @@ local aimbotHint = make("TextLabel", {
     TextWrapped = true,
 }, contentAimbot) :: TextLabel
 
+-- Configs tab content
+sectionLabel(contentConfigs, "PERSONAGEM")
+local speedButton = optionButton(contentConfigs, "")
+local jumpButton = optionButton(contentConfigs, "")
+local autoRunButton = optionButton(contentConfigs, "")
+local infiniteJumpButton = optionButton(contentConfigs, "")
+
+sectionLabel(contentConfigs, "FLY")
+local flyButton = optionButton(contentConfigs, "")
+local flySpeedSlider = createSlider(contentConfigs, CONFIG.FLY_SPEED_MIN, CONFIG.FLY_SPEED_MAX, "Fly speed")
+table.insert(sliders, flySpeedSlider)
+
+local resetConfigsButton = optionButton(contentConfigs, "")
+
+local configsHint = make("TextLabel", {
+    BackgroundTransparency = 1,
+    Font = Enum.Font.Gotham,
+    Size = UDim2.new(1, 0, 0, 64),
+    Text = "Use o botão pular para subir no fly. Botões flutuantes de subir/descer aparecem quando o fly está ligado.\nAuto correr move o personagem para frente sozinho e aumenta a velocidade em 7%.",
+    TextColor3 = getCurrentTheme().muted,
+    TextSize = 10,
+    TextWrapped = true,
+}, contentConfigs) :: TextLabel
+
 -- Mobile aim button (floating on-screen)
 local aimButton = make("TextButton", {
     Name = "MobileAimButton",
@@ -950,7 +1247,7 @@ local aimButton = make("TextButton", {
     BorderSizePixel = 0,
     Position = UDim2.new(0, state.aimButtonX, 0, state.aimButtonY),
     Size = UDim2.fromOffset(CONFIG.MOBILE_AIM_BUTTON_SIZE, CONFIG.MOBILE_AIM_BUTTON_SIZE),
-    Text = "AIM",
+    Text = "MIRA",
     TextColor3 = getAccent(),
     TextSize = 15,
     Font = Enum.Font.GothamBold,
@@ -959,6 +1256,41 @@ local aimButton = make("TextButton", {
 aimButton.Active = true
 corner(aimButton, 22)
 local aimButtonStroke = stroke(aimButton, getAccent(), 0.2, 2)
+
+-- Fly control buttons (floating on-screen)
+local flyUpButton = make("TextButton", {
+    Name = "FlyUpButton",
+    AnchorPoint = Vector2.new(1, 1),
+    AutoButtonColor = false,
+    BackgroundColor3 = getCurrentTheme().panel,
+    BorderSizePixel = 0,
+    Position = UDim2.new(1, -24, 1, -180),
+    Size = UDim2.fromOffset(CONFIG.MOBILE_FLY_BUTTON_SIZE, CONFIG.MOBILE_FLY_BUTTON_SIZE),
+    Text = "▲",
+    TextColor3 = getAccent(),
+    TextSize = 22,
+    Font = Enum.Font.GothamBold,
+    Visible = false,
+}, gui) :: TextButton
+corner(flyUpButton, 18)
+local flyUpButtonStroke = stroke(flyUpButton, getAccent(), 0.2, 2)
+
+local flyDownButton = make("TextButton", {
+    Name = "FlyDownButton",
+    AnchorPoint = Vector2.new(1, 1),
+    AutoButtonColor = false,
+    BackgroundColor3 = getCurrentTheme().panel,
+    BorderSizePixel = 0,
+    Position = UDim2.new(1, -24, 1, -104),
+    Size = UDim2.fromOffset(CONFIG.MOBILE_FLY_BUTTON_SIZE, CONFIG.MOBILE_FLY_BUTTON_SIZE),
+    Text = "▼",
+    TextColor3 = getAccent(),
+    TextSize = 22,
+    Font = Enum.Font.GothamBold,
+    Visible = false,
+}, gui) :: TextButton
+corner(flyDownButton, 18)
+local flyDownButtonStroke = stroke(flyDownButton, getAccent(), 0.2, 2)
 
 -- FOV Circle visualization (actual circle)
 local fovCircle = make("Frame", {
@@ -980,7 +1312,7 @@ local fovCircleInner = make("Frame", {
     Size = UDim2.fromScale(1, 1),
 }, fovCircle) :: Frame
 
-corner(fovCircleInner, 999) -- fully circular
+corner(fovCircleInner, 999)
 make("UIStroke", {
     Color = getAccent(),
     Thickness = 1,
@@ -1014,20 +1346,36 @@ local function applyTheme()
     closeButton.TextColor3 = current.muted
     hint.TextColor3 = current.muted
     aimbotHint.TextColor3 = current.muted
+    configsHint.TextColor3 = current.muted
 
     toggleStroke.Color = getAccent()
     panelStroke.Color = current.border
     aimButtonStroke.Color = getAccent()
+    flyUpButtonStroke.Color = getAccent()
+    flyDownButtonStroke.Color = getAccent()
 
-    for _, content in {contentESP, contentAimbot} do
+    aimButton.BackgroundColor3 = current.panel
+    flyUpButton.BackgroundColor3 = current.panel
+    flyDownButton.BackgroundColor3 = current.panel
+
+    for _, content in {contentESP, contentAimbot, contentConfigs} do
         for _, child in content:GetChildren() do
             if child:IsA("TextButton") then
                 child.BackgroundColor3 = current.surface
                 child.TextColor3 = current.text
-            elseif child:IsA("TextLabel") and child ~= hint and child ~= aimbotHint then
+            elseif child:IsA("TextLabel") and child ~= hint and child ~= aimbotHint and child ~= configsHint then
                 child.TextColor3 = current.muted
             end
         end
+    end
+
+    for _, slider in sliders do
+        slider.container.BackgroundColor3 = current.surface
+        slider.title.TextColor3 = current.text
+        slider.valueLabel.TextColor3 = getAccent()
+        slider.track.BackgroundColor3 = current.border
+        slider.fill.BackgroundColor3 = getAccent()
+        slider.knob.BackgroundColor3 = current.text
     end
 end
 
@@ -1052,8 +1400,18 @@ local function updateAimButtonVisual()
         aimButton.BackgroundColor3 = getCurrentTheme().panel
         aimButton.TextColor3 = getAccent()
     end
+end
 
-    aimButtonStroke.Color = getAccent()
+local function updateFlyButtons()
+    flyUpButton.Visible = state.flyEnabled
+    flyDownButton.Visible = state.flyEnabled
+
+    if state.flyEnabled then
+        flyUpButton.BackgroundColor3 = state.flyUp and getAccent() or getCurrentTheme().panel
+        flyUpButton.TextColor3 = state.flyUp and Color3.new(0, 0, 0) or getAccent()
+        flyDownButton.BackgroundColor3 = state.flyDown and getAccent() or getCurrentTheme().panel
+        flyDownButton.TextColor3 = state.flyDown and Color3.new(0, 0, 0) or getAccent()
+    end
 end
 
 local function refreshUI()
@@ -1088,8 +1446,18 @@ local function refreshUI()
     aimVisibleButton.Text = state.aimVisibleOnly and "Só visível  •  ligado" or "Só visível  •  desligado"
     aimResetPositionButton.Text = "Resetar posição do botão"
 
+    -- Configs tab
+    speedButton.Text = string.format("Velocidade  •  %d", state.walkSpeed)
+    jumpButton.Text = string.format("Pulo  •  %d", state.jumpPower)
+    autoRunButton.Text = state.autoRun and "Auto correr  •  ligado" or "Auto correr  •  desligado"
+    infiniteJumpButton.Text = state.infiniteJump and "Pulo infinito  •  ligado" or "Pulo infinito  •  desligado"
+    flyButton.Text = state.flyEnabled and "Fly  •  ligado" or "Fly  •  desligado"
+    updateSlider(flySpeedSlider, state.flySpeed)
+    resetConfigsButton.Text = "Resetar configurações"
+
     applyTheme()
     updateAimButtonVisual()
+    updateFlyButtons()
 
     -- Tab selection visuals (must be after applyTheme)
     local current = getCurrentTheme()
@@ -1105,6 +1473,7 @@ local function refreshUI()
 
     contentESP.Visible = state.activeTab == "ESP"
     contentAimbot.Visible = state.activeTab == "Aimbot"
+    contentConfigs.Visible = state.activeTab == "Configs"
 end
 
 local function refreshAll()
@@ -1127,6 +1496,11 @@ end)
 aimbotTabButton.Activated:Connect(function()
     pressFeedback(aimbotTabButton)
     switchTab("Aimbot")
+end)
+
+configsTabButton.Activated:Connect(function()
+    pressFeedback(configsTabButton)
+    switchTab("Configs")
 end)
 
 -- ESP button connections
@@ -1323,6 +1697,97 @@ connectOptionButton(aimResetPositionButton, function()
     refreshUI()
 end)
 
+-- Configs button connections
+connectOptionButton(speedButton, function()
+    local speeds = {1, 16, 25, 50, 100}
+    local currentIndex = table.find(speeds, state.walkSpeed) or 1
+    state.walkSpeed = speeds[currentIndex % #speeds + 1]
+    saveState()
+    refreshUI()
+    applyCharacterStats()
+end)
+
+connectOptionButton(jumpButton, function()
+    local jumps = {40, 100, 200, 400, 800}
+    local currentIndex = table.find(jumps, state.jumpPower) or 1
+    state.jumpPower = jumps[currentIndex % #jumps + 1]
+    saveState()
+    refreshUI()
+    applyCharacterStats()
+end)
+
+connectOptionButton(autoRunButton, function()
+    state.autoRun = not state.autoRun
+    saveState()
+    refreshUI()
+    applyCharacterStats()
+end)
+
+connectOptionButton(infiniteJumpButton, function()
+    state.infiniteJump = not state.infiniteJump
+    saveState()
+    refreshUI()
+end)
+
+connectOptionButton(flyButton, function()
+    local newState = not state.flyEnabled
+    toggleFly(newState)
+    refreshUI()
+end)
+
+local function setupSliderInteraction(slider, callback: (number) -> ())
+    local currentInput: InputObject?
+
+    local function updateFromInput(input: InputObject)
+        local value = getSliderValueFromInput(slider, input.Position.X)
+        callback(value)
+        updateSlider(slider, value)
+    end
+
+    slider.container.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+
+        currentInput = input
+        updateFromInput(input)
+
+        local conn: RBXScriptConnection?
+        conn = input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                currentInput = nil
+                if conn then
+                    conn:Disconnect()
+                end
+            end
+        end)
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == currentInput then
+            updateFromInput(input)
+        end
+    end)
+end
+
+setupSliderInteraction(flySpeedSlider, function(value: number)
+    state.flySpeed = value
+    saveState()
+end)
+
+connectOptionButton(resetConfigsButton, function()
+    state.walkSpeed = CONFIG.DEFAULT_WALK_SPEED
+    state.jumpPower = CONFIG.DEFAULT_JUMP_POWER
+    state.autoRun = false
+    state.infiniteJump = false
+    toggleFly(false)
+    state.flySpeed = 50
+    saveState()
+    refreshUI()
+    applyCharacterStats()
+end)
+
 -- Mobile aim button interactions
 local aimButtonDragging = false
 local aimDragStart: Vector2
@@ -1392,6 +1857,43 @@ UserInputService.InputChanged:Connect(function(input)
         end
     end
 end)
+
+-- Fly button interactions (hold to go up/down)
+local function setupFlyHoldButton(button: TextButton, flagName: string)
+    local currentInput: InputObject?
+
+    button.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+
+        currentInput = input
+        state[flagName] = true
+        updateFlyButtons()
+
+        local conn: RBXScriptConnection?
+        conn = input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                currentInput = nil
+                if conn then
+                    conn:Disconnect()
+                end
+                state[flagName] = false
+                updateFlyButtons()
+            end
+        end)
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == currentInput then
+            -- track movement if needed
+        end
+    end)
+end
+
+setupFlyHoldButton(flyUpButton, "flyUp")
+setupFlyHoldButton(flyDownButton, "flyDown")
 
 local function setPanelVisible(visible: boolean)
     state.panelOpen = visible
@@ -1488,7 +1990,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
 
         updateAimButtonVisual()
 
-        -- Save aim button position periodically during drag
         if aimButtonDragging and lastAimButtonSave >= 0.5 then
             lastAimButtonSave = 0
             saveState()
@@ -1513,12 +2014,29 @@ RunService.Heartbeat:Connect(function(deltaTime)
         aimButtonHeld = false
         state.aimActive = false
     end
+
+    -- Auto-run: move forward automatically when enabled
+    if state.autoRun and not state.flyEnabled then
+        local autoRunChar = localPlayer.Character
+        local autoRunHum = autoRunChar and getHumanoid(autoRunChar)
+        if autoRunHum then
+            autoRunHum:Move(Vector3.new(0, 0, -1), true)
+        end
+    end
+
+    -- Re-apply character stats periodically in case the game resets them
+    if tick() % 1 < 0.05 then
+        applyCharacterStats()
+    end
 end)
 
 -- Cleanup on script destroy
 local function cleanup()
     clearAllESP()
-    gui:Destroy()
+    disableFly()
+    if gui then
+        gui:Destroy()
+    end
     espFolder:Destroy()
 end
 
